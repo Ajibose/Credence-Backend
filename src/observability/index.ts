@@ -21,3 +21,9 @@ export {
   createSlowOperationEvent,
   createSuccessEvent,
 } from './timeoutMetrics.js'
+
+export {
+  featureFlagCacheHits,
+  featureFlagCacheMisses,
+  featureFlagCacheInvalidations,
+} from '../services/featureFlags/index.js'
