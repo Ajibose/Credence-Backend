@@ -12,7 +12,7 @@ import {
   parsePaginationParams,
 } from "../../lib/pagination.js";
 import { AdminService } from "../../services/admin/index.js";
-import { auditLogService } from "../../services/audit/index.js";
+import { auditLogService, AuditAction } from "../../services/audit/index.js";
 import { impersonationService } from "../../services/impersonation/index.js";
 import { AppError, ErrorCode, ValidationError } from "../../lib/errors.js";
 import type {
@@ -339,8 +339,7 @@ export function createAdminRouter(): Router {
         user.email,
         startDate,
         endDate,
-        count,
-        requestId
+        count
       );
       res.end();
     } catch (error) {

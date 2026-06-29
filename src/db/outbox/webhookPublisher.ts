@@ -33,7 +33,7 @@ export class WebhookEventPublisher implements EventPublisher {
       'bond.created': 'bond.created',
       'bond.slashed': 'bond.slashed',
       'bond.withdrawn': 'bond.withdrawn',
-      'attestation.created': 'attestation.created',
+      'attestation.created': 'attestation.added',
       'attestation.revoked': 'attestation.revoked',
       'credits.low': 'credits.low',
     }

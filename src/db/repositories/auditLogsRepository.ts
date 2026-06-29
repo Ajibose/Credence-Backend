@@ -19,6 +19,7 @@ type AuditLogRow = {
   details_json: Record<string, unknown> | null
   status: AuditStatus
   ip_address: string | null
+  request_id: string | null
   error_message: string | null
   tenant_id: string
   seq?: number
@@ -302,6 +303,7 @@ export class PostgresAuditLogsRepository implements AuditLogRepository {
         ip_address,
         error_message,
         tenant_id,
+        request_id,
         seq,
         prev_hash,
         row_hash

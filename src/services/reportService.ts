@@ -53,6 +53,7 @@ export class ReportService {
 
     // Check concurrency cap
     const config = this.getConfig()
+    if (!config) throw new Error('Config not loaded')
     const cap = config.reports.maxConcurrentJobsPerOrg
     if (cap > 0) {
       const activeJobsStr = await cache.get<string>('report', countKey)

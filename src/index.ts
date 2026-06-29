@@ -2,7 +2,6 @@ import 'dotenv/config'
 import http from 'http'
 import { initTracing } from './tracing/tracer.js'
 import app from './app.js'
-import { createServer } from './app.js'
 import { createAdminRouter } from './routes/admin/index.js'
 import governanceRouter from './routes/governance.js'
 import disputesRouter from './routes/disputes.js'
@@ -120,9 +119,6 @@ if (process.env.NODE_ENV !== "test") {
     // Graceful shutdown
     const shutdown = async (signal: string): Promise<void> => {
       logger.info(`Received ${signal}, shutting down gracefully...`)
-      
-      // Shutdown WebSocket server
-      await shutdownWebSocketServer()
       
       // Close HTTP server
       server.close(() => {

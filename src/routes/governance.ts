@@ -15,10 +15,10 @@ import { validate, type ValidatedRequest } from '../middleware/validate.js'
 import {
   createSlashRequestBodySchema,
   submitVoteBodySchema,
-  slashRequestIdParamsSchema,
+  slashRequestPathParamsSchema,
   type CreateSlashRequestBody,
   type SubmitVoteBody,
-  type SlashRequestIdParams,
+  type SlashRequestPathParams,
 } from '../schemas/governance.js'
 
 const router = Router()
@@ -72,11 +72,11 @@ router.post(
 router.post(
   '/slash-requests/:id/votes',
   requireUserAuth,
-  validate({ params: slashRequestIdParamsSchema, body: submitVoteBodySchema }),
+  validate({ params: slashRequestPathParamsSchema, body: submitVoteBodySchema }),
   async (req: Request, res: Response) => {
     const authReq = req as AuthenticatedRequest
     const actor = authReq.user!
-    const validatedReq = req as ValidatedRequest<SlashRequestIdParams, any, SubmitVoteBody>
+    const validatedReq = req as ValidatedRequest<SlashRequestPathParams, any, SubmitVoteBody>
     const requestId = validatedReq.validated.params.id
     const { voterId, choice } = validatedReq.validated.body
 
@@ -131,9 +131,9 @@ router.post(
 router.get(
   '/slash-requests/:id',
   requireUserAuth,
-  validate({ params: slashRequestIdParamsSchema }),
+  validate({ params: slashRequestPathParamsSchema }),
   (req: Request, res: Response) => {
-    const validatedReq = req as ValidatedRequest<SlashRequestIdParams>
+    const validatedReq = req as ValidatedRequest<SlashRequestPathParams>
     const request = getSlashRequest(validatedReq.validated.params.id)
     if (!request) {
       res.status(404).json({ error: 'NotFound', message: 'Slash request not found' })

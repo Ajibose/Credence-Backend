@@ -44,10 +44,7 @@ export async function emitWebhookForAttestationChange(
     aggregateType: 'identity',
     aggregateId: payload.address,
     eventType,
-    payload: {
-      address: payload.address,
-      ...payload
-    },
+    payload: payload as any,
   })
 }
 
@@ -65,7 +62,7 @@ export async function emitWebhookForScoreChange(
       payload: {
         address,
         score: newScore
-      },
+      } as any,
     })
   }
 }

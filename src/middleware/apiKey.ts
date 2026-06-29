@@ -16,7 +16,15 @@
  */
 
 import type { Request, Response, NextFunction } from 'express'
-import { validateApiKey, type KeyScope, type StoredApiKey, ApiKeyScope } from '../services/apiKeys.js'
+import { validateApiKey, type KeyScope, type StoredApiKey } from '../services/apiKeys.js'
+
+export const ApiKeyScope = {
+  BOND_READ: 'read',
+  BOND_WRITE: 'write',
+  ATTESTATION_WRITE: 'attestation_write',
+} as const
+
+export type ApiKeyScope = (typeof ApiKeyScope)[keyof typeof ApiKeyScope]
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
