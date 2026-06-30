@@ -22,6 +22,8 @@ export const ApiKeyScope = {
   BOND_READ: 'read',
   BOND_WRITE: 'write',
   ATTESTATION_WRITE: 'attestation_write',
+  TRUST_READ: 'trust:read',
+  ATTESTATIONS_READ: 'attestations:read',
 } as const
 
 export type ApiKeyScope = (typeof ApiKeyScope)[keyof typeof ApiKeyScope]

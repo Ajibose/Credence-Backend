@@ -10,7 +10,7 @@ export const assignRoleBodySchema = z
   .object({
     userId: z.string().min(1, 'userId is required'),
     role: z.nativeEnum(UserRole, {
-      errorMap: () => ({ message: 'role must be a valid UserRole' }),
+      message: 'role must be a valid UserRole',
     }),
   })
   .strict()
@@ -64,7 +64,7 @@ export const inviteMemberBodySchema = z
 export const updateMemberRoleBodySchema = z
   .object({
     role: z.enum(['owner', 'admin', 'member'] as const, {
-      errorMap: () => ({ message: 'role must be one of: owner, admin, member' }),
+      message: 'role must be one of: owner, admin, member',
     }),
   })
   .strict()

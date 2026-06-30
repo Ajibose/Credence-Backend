@@ -72,7 +72,7 @@ if (process.env.NODE_ENV !== "test") {
   });
 
   process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    logger.error(`Unhandled Rejection at: ${promise} reason: ${reason}`, reason instanceof Error ? reason : undefined);
     if (reason instanceof Error && (reason.message.includes('heap out of memory') || reason.name === 'JavaScript heap out of memory')) {
       recordOomEvent();
     }
@@ -121,10 +121,14 @@ if (process.env.NODE_ENV !== "test") {
       logger.info(`Received ${signal}, shutting down gracefully...`)
       
       // Close HTTP server
-      server.close(() => {
-        logger.info('HTTP server closed')
+      if (server) {
+        server.close(() => {
+          logger.info('HTTP server closed')
+          process.exit(0)
+        })
+      } else {
         process.exit(0)
-      })
+      }
       
       // Force shutdown after 10 seconds
       setTimeout(() => {

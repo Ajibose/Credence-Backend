@@ -7,7 +7,9 @@ import type { AuditChainVerificationHooks } from './auditChainVerifier.js'
  */
 export function createDefaultAuditChainVerificationHooks(): AuditChainVerificationHooks {
   return {
-    saveStatus: (result) => auditLogService.saveChainVerificationStatus(result),
+    saveStatus: async (result) => {
+      await auditLogService.saveChainVerificationStatus(result)
+    },
     logVerification: logAuditChainVerification,
   }
 }

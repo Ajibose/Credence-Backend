@@ -1,4 +1,4 @@
-import type { HealthProbe } from "./types.js";
+import type { HealthProbe, DependencyHealth } from "./types.js";
 import { pool } from "../../db/pool.js";
 import { RedisConnection } from "../../cache/redis.js";
 import { getCircuitBreaker } from "../../clients/circuitBreaker.js";
@@ -173,7 +173,7 @@ export function createHorizonListenerProbe(
 export function createOutboxPublisherProbe(
   maxStaleMs: number = WORKER_HEARTBEAT_STALE_MS,
 ): HealthProbe {
-  return async () => {
+  return async (): Promise<DependencyHealth> => {
     const start = Date.now();
     const state = getOutboxPublisherState();
     if (!state.configured) {
