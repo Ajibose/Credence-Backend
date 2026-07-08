@@ -7,6 +7,7 @@ import {
 } from "../../middleware/auth.js";
 import erasureProofRouter from './erasureProof.js'
 import auditChainStatusRouter from './auditChainStatus.js'
+import settlementReconciliationRouter from './settlementReconciliation.js'
 import {
   buildPaginationMeta,
   parsePaginationParams,
@@ -101,17 +102,6 @@ export function createAdminRouter(): Router {
       const requestId = (req as any).requestId
       const assignRequest = req.body as AssignRoleRequest
 
-        const result = await adminService.assignRole(user.id, user.email, assignRequest as AssignRoleRequest)
-
-        res.status(200).json({
-          success: true,
-          message: result.message,
-          data: result.user,
-        })
-      } catch (error) {
-        next(error)
-      }
-
       const result = await adminService.assignRole(
         user.id,
         user.email,
@@ -138,16 +128,6 @@ export function createAdminRouter(): Router {
       const user = authReq.user!
       const requestId = (req as any).requestId
       const revokeRequest = req.body as RevokeApiKeyRequest
-
-        const result = await adminService.revokeApiKey(user.id, user.email, revokeRequest as RevokeApiKeyRequest)
-
-        res.status(200).json({
-          success: true,
-          message: result.message,
-        })
-      } catch (error) {
-        next(error)
-      }
 
       const result = await adminService.revokeApiKey(
         user.id,
@@ -177,12 +157,10 @@ export function createAdminRouter(): Router {
       const requestId = (req as any).requestId
       const body = req.body as Partial<IssueImpersonationTokenRequest>
 
-        const issued = impersonationService.issueToken(
-          user.id,
-          user.email,
-          body as IssueImpersonationTokenRequest,
-          req.ip,
-        )
+      if (!body.targetUserId || !body.reason) {
+        res.status(400).json({ error: 'BadRequest', message: 'targetUserId and reason are required' })
+        return
+      }
 
       const issued = await impersonationService.issueToken(
         user.id,
@@ -516,6 +494,9 @@ export function createAdminRouter(): Router {
 
   // Mount audit chain status (read-only verifier state)
   router.use('/audit', auditChainStatusRouter)
+
+  // Mount settlement reconciliation report (read-only)
+  router.use('/settlement', settlementReconciliationRouter)
 
   return router
 }

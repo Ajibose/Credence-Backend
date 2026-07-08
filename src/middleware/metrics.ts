@@ -171,6 +171,12 @@ export const settlementDriftTotal = new client.Counter({
   registers: [register]
 })
 
+export const settlementUnmatchedCount = new client.Gauge({
+  name: 'settlement_unmatched_count',
+  help: 'Current number of unmatched settlement reconciliation findings from the latest run',
+  registers: [register],
+})
+
 // ============================================================================
 // Webhooks Metrics
 // ============================================================================
@@ -384,6 +390,18 @@ export function recordIdempotencyCheck(handlerType: string, result: 'duplicate' 
  */
 export function recordSettlementDrift(findingType: 'state_mismatch' | 'missing_on_chain') {
   settlementDriftTotal.inc({ finding_type: findingType })
+}
+
+/**
+ * Set the current unmatched settlement count gauge.
+ *
+ * Called at the end of each reconciliation run so operators can
+ * alert on non-zero drift without reading logs.
+ *
+ * @param count - Number of unmatched findings in the latest run
+ */
+export function setSettlementUnmatchedCount(count: number) {
+  settlementUnmatchedCount.set(count)
 }
 
 /**

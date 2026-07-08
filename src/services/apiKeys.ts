@@ -183,7 +183,7 @@ export function rotateApiKey(id: string): CreateApiKeyResult | null {
   if (!existing || !existing.active) return null
 
   existing.active = false
-  return await generateApiKey(existing.ownerId, existing.scopes, existing.tier)
+  return generateApiKey(existing.ownerId, existing.scopes, existing.tier)
 }
 
 /**

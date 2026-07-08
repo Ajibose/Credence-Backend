@@ -28,6 +28,7 @@ import {
   compressionMetricsMiddleware,
 } from "./middleware/compression.js";
 import { metricsMiddleware, register } from "./middleware/metrics.js";
+import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
 import {
   jsonBodyParser,
   requestSizeLimitErrorHandler,

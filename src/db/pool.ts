@@ -106,7 +106,7 @@ export async function withReplica<T>(
     return await operation(replicaPool);
   } catch (err) {
     if (fallback) {
-      logger.warn(`[withReplica] Replica error or lag exceeded, falling back to primary`, err);
+      logger.warn(`[withReplica] Replica error or lag exceeded, falling back to primary: ${err instanceof Error ? err.message : err}`);
       return await operation(pool);
     }
     throw err;
