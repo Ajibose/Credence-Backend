@@ -50,6 +50,21 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
+  path: '/api/version',
+  summary: 'Build version',
+  description:
+    "Returns the running build's git SHA, build timestamp, and Node version, so support/on-call can confirm which build is deployed.",
+  tags: ['Health'],
+  responses: {
+    200: {
+      description: 'Version metadata',
+      content: { 'application/json': { schema: schemas.versionResponseSchema } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
   path: '/.well-known/jwks.json',
   summary: 'JWKS',
   description: 'JSON Web Key Set for verifying JWT signatures.',

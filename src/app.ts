@@ -16,6 +16,7 @@ import { requestIdMiddleware } from './middleware/requestId.js'
 import express from "express";
 import { createJwksRouter } from "./routes/jwks.js";
 import { createHealthRouter } from "./routes/health.js";
+import { createVersionRouter } from "./routes/version.js";
 import { createDefaultProbes } from "./services/health/probes.js";
 import { isReady } from "./lifecycle.js";
 import trustRouter from "./routes/trust.js";
@@ -227,6 +228,7 @@ app.use("/.well-known/jwks.json", createJwksRouter());
 
 const healthProbes = createDefaultProbes();
 app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
+app.use("/api/version", createVersionRouter());
 
 app.use("/api", rateLimitMiddleware);
 
