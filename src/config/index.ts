@@ -85,6 +85,16 @@ export const envSchema = z.object({
     .default('10000')
     .transform(Number)
     .pipe(z.number().int().min(100).max(60000)),
+  /**
+   * Minimum query duration (ms) that triggers a slow-query log entry with
+   * the query's EXPLAIN plan attached. Set to 0 to disable. Default: 1000
+   * (1 second) — see docs/observability.md#slow-query-logging.
+   */
+  SLOW_QUERY_THRESHOLD_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
 
   // Redis
   REDIS_URL: z.string().url({ message: 'REDIS_URL must be a valid URL' }),
@@ -420,6 +430,8 @@ export interface Config {
     workerPool: {
       max: number
     }
+    /** Minimum query duration (ms) that triggers a slow-query log entry. 0 disables. */
+    slowQueryThresholdMs: number
   }
   redis: {
     url: string
@@ -619,6 +631,7 @@ function mapEnvToConfig(env: Env): Config {
       workerPool: {
         max: env.DB_WORKER_POOL_MAX,
       },
+      slowQueryThresholdMs: env.SLOW_QUERY_THRESHOLD_MS,
     },
     redis: {
       url: env.REDIS_URL,

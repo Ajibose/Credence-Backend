@@ -1,6 +1,8 @@
-import { Pool, type PoolClient } from "pg";
+import { Pool, type PoolClient, type QueryResult } from "pg";
 import dotenv from "dotenv";
 import { logger } from "../utils/logger.js";
+import { LogEventType } from "../observability/logSchemas.js";
+import { redact } from "../observability/redaction.js";
 
 dotenv.config();
 
@@ -22,6 +24,13 @@ const IDLE_TIMEOUT = envInt("DB_POOL_IDLE_TIMEOUT_MS", 30_000);
 const CONN_TIMEOUT = envInt("DB_POOL_CONNECTION_TIMEOUT_MS", 5_000);
 const STMT_TIMEOUT = envInt("DB_STATEMENT_TIMEOUT_MS", 30_000);
 const WORKER_MAX = envInt("DB_WORKER_POOL_MAX", 5);
+
+/**
+ * Minimum query duration (ms) that triggers a slow-query log entry with the
+ * query's EXPLAIN plan attached. 0 disables slow-query logging entirely.
+ * See docs/observability.md#slow-query-logging.
+ */
+const SLOW_QUERY_THRESHOLD_MS = envInt("SLOW_QUERY_THRESHOLD_MS", 1_000);
 
 const DB_REPLICA_URL = process.env.DB_REPLICA_URL || DB_URL;
 const MAX_REPLICA_LAG_MS = envInt("MAX_REPLICA_LAG_MS", 1000);
@@ -78,6 +87,149 @@ export const replicaPool = new Pool({
 replicaPool.on("error", (err) => {
   logger.error("[replicaPool] unexpected client error", err);
 });
+
+type PoolName = "api" | "worker" | "replica";
+
+/** Maximum characters of query text kept in a slow-query log line. */
+const MAX_LOGGED_QUERY_LENGTH = 4_000;
+
+function truncateQueryText(text: string): string {
+  return text.length > MAX_LOGGED_QUERY_LENGTH
+    ? `${text.slice(0, MAX_LOGGED_QUERY_LENGTH)}…[truncated]`
+    : text;
+}
+
+function extractQueryText(args: unknown[]): string | undefined {
+  const first = args[0];
+  if (typeof first === "string") return first;
+  if (first && typeof first === "object" && "text" in first) {
+    const text = (first as { text?: unknown }).text;
+    return typeof text === "string" ? text : undefined;
+  }
+  return undefined;
+}
+
+function extractQueryParams(args: unknown[]): unknown[] | undefined {
+  const first = args[0];
+  if (first && typeof first === "object" && "values" in first) {
+    const values = (first as { values?: unknown }).values;
+    return Array.isArray(values) ? values : undefined;
+  }
+  return Array.isArray(args[1]) ? (args[1] as unknown[]) : undefined;
+}
+
+/**
+ * Logs a slow-query event (with EXPLAIN plan) once `durationMs` exceeds
+ * `thresholdMs`. Uses plain `EXPLAIN` — never `EXPLAIN ANALYZE` — because
+ * ANALYZE re-executes the statement, which would duplicate side effects for
+ * mutating queries (INSERT/UPDATE/DELETE). Bind parameter *values* are
+ * never logged, only the parameterized query text and the estimated plan,
+ * so this cannot leak PII/secrets passed as query parameters.
+ */
+async function reportIfSlow(
+  originalQuery: (...args: unknown[]) => Promise<QueryResult>,
+  poolName: PoolName,
+  thresholdMs: number,
+  args: unknown[],
+  startedAt: bigint
+): Promise<void> {
+  const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  if (durationMs < thresholdMs) return;
+
+  const text = extractQueryText(args);
+  if (!text) return;
+
+  // Imported lazily (rather than at module top level) so that constructing
+  // a Pool never has a side effect on prom-client's global metrics
+  // registry — module-reload-heavy tests (e.g. pool.test.ts) re-evaluate
+  // this file's top level repeatedly, which would otherwise re-register
+  // the same metric name and throw.
+  const { dbSlowQueriesTotal, dbSlowQueryDurationSeconds } = await import("../observability/customMetrics.js");
+  dbSlowQueriesTotal.inc({ pool: poolName });
+  dbSlowQueryDurationSeconds.observe({ pool: poolName }, durationMs / 1000);
+
+  // Best-effort: if EXPLAIN itself fails (e.g. the statement isn't
+  // EXPLAIN-able in isolation), still emit the slow-query log below with
+  // plan omitted rather than losing the timing signal entirely.
+  let plan: string | undefined;
+  try {
+    const params = extractQueryParams(args);
+    const explainResult = await originalQuery(`EXPLAIN (FORMAT JSON) ${text}`, params);
+    const planJson = explainResult.rows[0]?.["QUERY PLAN"];
+    plan = planJson !== undefined ? truncateQueryText(JSON.stringify(planJson)) : undefined;
+  } catch {
+    plan = undefined;
+  }
+
+  logger.warn(
+    redact(
+      {
+        eventType: LogEventType.DB_SLOW_QUERY,
+        message: "Slow query exceeded threshold",
+        query: truncateQueryText(text),
+        durationMs: Math.round(durationMs),
+        thresholdMs,
+        pool: poolName,
+        plan,
+      },
+      { eventType: LogEventType.DB_SLOW_QUERY }
+    )
+  );
+}
+
+/**
+ * Wraps `target.query` so that any call taking at least `thresholdMs`
+ * (default `SLOW_QUERY_THRESHOLD_MS`) is logged together with its EXPLAIN
+ * plan. A `thresholdMs` of 0 disables instrumentation.
+ * @internal Exported for testing only.
+ */
+export function instrumentSlowQueryLogging(
+  target: Pool,
+  poolName: PoolName,
+  thresholdMs: number = SLOW_QUERY_THRESHOLD_MS
+): void {
+  if (thresholdMs <= 0) return;
+
+  const originalQuery = target.query.bind(target) as (...args: unknown[]) => unknown;
+
+  target.query = ((...args: unknown[]) => {
+    // Callback-style calls aren't used anywhere in this codebase; pass them
+    // through unmodified rather than instrumenting a shape we can't time.
+    if (typeof args[args.length - 1] === "function") {
+      return originalQuery(...args);
+    }
+
+    const startedAt = process.hrtime.bigint();
+    const result = originalQuery(...args) as Promise<QueryResult>;
+
+    return result.then(
+      (res) => {
+        void reportIfSlow(
+          originalQuery as (...a: unknown[]) => Promise<QueryResult>,
+          poolName,
+          thresholdMs,
+          args,
+          startedAt
+        );
+        return res;
+      },
+      (err) => {
+        void reportIfSlow(
+          originalQuery as (...a: unknown[]) => Promise<QueryResult>,
+          poolName,
+          thresholdMs,
+          args,
+          startedAt
+        );
+        throw err;
+      }
+    );
+  }) as unknown as Pool["query"];
+}
+
+instrumentSlowQueryLogging(pool, "api");
+instrumentSlowQueryLogging(workerPool, "worker");
+instrumentSlowQueryLogging(replicaPool, "replica");
 
 /**
  * Helper to execute an operation on the replica, falling back to primary
