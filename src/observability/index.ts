@@ -44,5 +44,7 @@ export {
   syntheticProbeFailureTotal,
   dbTxnDurationSeconds,
   dbTxnSavepoints,
+  dbSlowQueriesTotal,
+  dbSlowQueryDurationSeconds,
   registerSyntheticMetrics,
 } from './customMetrics.js'

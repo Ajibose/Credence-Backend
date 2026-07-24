@@ -204,6 +204,7 @@ npx eslint src/ --rule 'logger-schema/require-schema-context: warn'
 | `HTTP_ERROR`                         | `message`, `method`, `path`, `statusCode`, `error`, `stack`, `requestId` | Request error           |
 | `AUTH_LOGIN`                         | `message`, `method`, `success`                                    | Login events                 |
 | `AUTH_FAILURE`                       | `message`, `method`, `reason`                                     | Auth failure events          |
+| `DB_SLOW_QUERY`                      | `message`, `query`, `durationMs`, `thresholdMs`, `pool`, `plan`   | Query exceeded slow-query threshold |
 | `GENERIC_INFO` / `GENERIC_ERROR`     | `message` (+ `error`/`stack` for ERROR)                           | Fallback schemas             |
 
 ### Testing Redaction
@@ -338,6 +339,47 @@ const result = await txManager.withTransaction(
 ```
 
 The span is created via the `withSpan` utility and exported by the configured `SpanProcessor` (ConsoleSpanExporter in dev; OTLP in production).
+
+## Slow Query Logging
+
+Every query issued through `pool`, `workerPool`, or `replicaPool` (`src/db/pool.ts`) is timed. Any query taking at least `SLOW_QUERY_THRESHOLD_MS` (default `1000`, i.e. 1 second; `0` disables the check) emits a `db:slow-query` structured log — `LogEventType.DB_SLOW_QUERY` — with the query's plan attached, and increments Prometheus metrics.
+
+| Field         | Type   | Description                                                        |
+|---------------|--------|---------------------------------------------------------------------|
+| `message`     | string | `"Slow query exceeded threshold"`                                   |
+| `query`       | string | The parameterized query text (e.g. `... WHERE id = $1`), truncated to 4000 characters. Bind parameter *values* are never logged. |
+| `durationMs`  | number | Observed query duration, rounded to the nearest millisecond.        |
+| `thresholdMs` | number | The configured `SLOW_QUERY_THRESHOLD_MS` value at the time of the call. |
+| `pool`        | string | Which pool ran the query: `"api"`, `"worker"`, or `"replica"`.      |
+| `plan`        | string | JSON-stringified output of `EXPLAIN (FORMAT JSON) <query>`, run against the same query text and bind parameters. Omitted if EXPLAIN itself fails. |
+
+### Why plain `EXPLAIN`, not `EXPLAIN ANALYZE`
+
+`EXPLAIN ANALYZE` re-executes the statement to gather real timing, which would duplicate side effects for mutating queries (`INSERT`/`UPDATE`/`DELETE`) every time one runs slowly. Plain `EXPLAIN` only plans the query — it never executes it — so it is safe to run unconditionally after any slow query, including writes.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|--------------|
+| `SLOW_QUERY_THRESHOLD_MS` | `1000` | Minimum query duration (ms) that triggers a slow-query log entry. `0` disables slow-query logging entirely. |
+
+### Metrics
+
+- **`db_slow_queries_total`** (Counter, labeled by `pool`): total number of queries that exceeded the threshold.
+- **`db_slow_query_duration_seconds`** (Histogram, labeled by `pool`): duration distribution of queries that exceeded the threshold.
+
+### Example log line
+
+```json
+{
+  "message": "Slow query exceeded threshold",
+  "query": "SELECT * FROM attestations WHERE subject_id = $1",
+  "durationMs": 1342,
+  "thresholdMs": 1000,
+  "pool": "api",
+  "plan": "[{\"Plan\":{\"Node Type\":\"Seq Scan\",\"Relation Name\":\"attestations\",\"Total Cost\":48123.0}}]"
+}
+```
 
 ## Outbox Publisher Observability (Issue #329)
 
