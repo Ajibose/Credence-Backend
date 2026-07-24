@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from 'express'
 import { runHealthChecks } from '../services/health/index.js'
 import type { HealthProbe } from '../services/health/index.js'
+import type { RedisClient } from '../cache/redis.js'
+import { WorkerHealthService } from '../services/workerHealth.js'
 import { getVersionMetadata } from '../utils/version.js'
 
 export interface HealthRouterOptions {
@@ -16,6 +18,12 @@ export interface HealthRouterOptions {
   queue?: HealthProbe
   /** Optional gateway (e.g. Horizon); failure does not cause 503. */
   gateway?: HealthProbe
+  /**
+   * Redis client for the worker-health endpoint.
+   * When provided, a `GET /workers` route is registered that reports the
+   * lease + last-heartbeat state of every known distributed-lock key.
+   */
+  redisClient?: RedisClient
   /** Backward-compatible Horizon listener probe alias. */
   horizonListener?: HealthProbe
   /** Backward-compatible outbox publisher probe alias. */
@@ -31,11 +39,13 @@ export interface HealthRouterOptions {
 
 /**
  * Builds the health check router.
- * Supports readiness (with dependency status) and liveness (process up).
+ * Supports readiness (with dependency status), liveness (process up),
+ * and worker health (lease + heartbeat).
  *
- * - GET /api/health     -> full status; 503 if any critical dependency is down
- * - GET /api/health/ready -> same as /api/health (readiness)
- * - GET /api/health/live  -> 200 always when process is running (liveness)
+ * - GET /api/health       -> full status; 503 if any critical dependency is down
+ * - GET /api/health/ready   -> same as /api/health (readiness)
+ * - GET /api/health/live    -> 200 always when process is running (liveness)
+ * - GET /api/health/workers -> worker lease + heartbeat summary (when redisClient is configured)
  *
  * Response body does not expose internal details (no error messages or connection info).
  * Each dependency result includes latencyMs indicating how long the probe took.
@@ -84,6 +94,26 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
       version: getVersionMetadata(),
     })
   })
+
+  /**
+   * Worker health: lease + last-heartbeat summary for on-call debugging.
+   * Available only when a Redis client was provided to the router.
+   */
+  if (options.redisClient) {
+    const workerHealthService = new WorkerHealthService(options.redisClient)
+
+    router.get('/workers', async (_req: Request, res: Response) => {
+      try {
+        const result = await workerHealthService.getWorkerStatuses()
+        res.status(200).json(result)
+      } catch {
+        res.status(503).json({
+          workers: [],
+          error: 'Unable to query worker health',
+        })
+      }
+    })
+  }
 
   return router
 }
