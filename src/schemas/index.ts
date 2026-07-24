@@ -180,4 +180,8 @@ export {
   type InviteMemberBody,
   type UpdateMemberRoleBody,
 } from './admin.js'
+export {
+  redirectTargetSchema,
+  type RedirectTarget,
+} from './redirect.js'
 

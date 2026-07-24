@@ -30,6 +30,7 @@ const DEFAULT_MESSAGES = {
   'value_too_large': "The request contains a value above the allowed maximum",
   'unexpected_field': "The request contains an unexpected field",
   'invalid_type': "The request contains a field with an invalid type",
+  'unsafe_redirect_target': "The requested redirect target is not permitted",
   'invalid_stellar_address': "The request contains an invalid Stellar address",
   'batch_size_too_small': "The batch size is below the allowed minimum",
   'batch_size_exceeded': "The batch size exceeds the allowed maximum",
@@ -250,6 +251,20 @@ export class InvalidTypeCredenceError extends CredenceError {
   ) {
     super(message, 'invalid_type', status, details, options)
     this.name = 'InvalidTypeCredenceError'
+  }
+}
+
+export class UnsafeRedirectTargetCredenceError extends CredenceError {
+  static readonly errorCode = 'unsafe_redirect_target' as const
+
+  constructor(
+    message: string = DEFAULT_MESSAGES['unsafe_redirect_target'],
+    status: number = 400,
+    details?: unknown,
+    options?: CredenceErrorOptions,
+  ) {
+    super(message, 'unsafe_redirect_target', status, details, options)
+    this.name = 'UnsafeRedirectTargetCredenceError'
   }
 }
 
@@ -559,6 +574,7 @@ export const CREDENCE_ERROR_REGISTRY = {
   'value_too_large': ValueTooLargeCredenceError,
   'unexpected_field': UnexpectedFieldCredenceError,
   'invalid_type': InvalidTypeCredenceError,
+  'unsafe_redirect_target': UnsafeRedirectTargetCredenceError,
   'invalid_stellar_address': InvalidStellarAddressCredenceError,
   'batch_size_too_small': BatchSizeTooSmallCredenceError,
   'batch_size_exceeded': BatchSizeExceededCredenceError,

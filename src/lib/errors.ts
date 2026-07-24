@@ -115,6 +115,19 @@ export class ValidationError extends AppError {
 }
 
 /**
+ * Specific error for redirect targets that fail open-redirect validation
+ * (protocol-relative URLs, backslash tricks, or hosts outside the allowlist).
+ */
+export class UnsafeRedirectError extends AppError {
+  constructor(
+    message: string = getErrorCatalogEntry(ErrorCodeRegistry.UNSAFE_REDIRECT_TARGET).defaultMessage,
+    details?: unknown
+  ) {
+    super(message, ErrorCodeRegistry.UNSAFE_REDIRECT_TARGET, undefined, details)
+  }
+}
+
+/**
  * Specific error for resource not found.
  */
 export class NotFoundError extends AppError {

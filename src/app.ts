@@ -45,6 +45,7 @@ import {
 } from "./middleware/compression.js";
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
+import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
 import {
   bondPathParamsSchema,
   attestationsPathParamsSchema,
@@ -268,6 +269,16 @@ app.use("/api/bulk", bulkRouter);
 
 app.use("/api/imports", createImportsRouter());
 
+// Defence-in-depth open-redirect guard: applied once here (rather than in
+// each admin route handler) so it covers every current and future 302 under
+// /api/admin/*, including the webhooks and feature-flags sub-routers mounted
+// below. See docs/SECURITY.md#open-redirect-protection.
+const adminRedirectAllowedHosts = process.env.ADMIN_REDIRECT_ALLOWED_HOSTS
+  ?.split(',')
+  .map((s) => s.trim())
+  .filter(Boolean) ?? [];
+
+app.use("/api/admin", createSafeRedirectMiddleware({ allowedHosts: adminRedirectAllowedHosts }));
 app.use("/api/admin", createAdminRouter());
 app.use("/api/admin/webhooks", createWebhookAdminRouter());
 app.use("/api/admin/feature-flags", createFeatureFlagAdminRouter());

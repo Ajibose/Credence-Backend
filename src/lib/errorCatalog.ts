@@ -115,6 +115,14 @@ export const ERROR_CATALOG = freezeCatalog({
     defaultMessage: 'The request contains a field with an invalid type',
     category: 'validation',
   },
+  UNSAFE_REDIRECT_TARGET: {
+    code: 'unsafe_redirect_target',
+    sdkClassName: 'UnsafeRedirectTargetCredenceError',
+    kind: 'api',
+    httpStatus: 400,
+    defaultMessage: 'The requested redirect target is not permitted',
+    category: 'validation',
+  },
   INVALID_STELLAR_ADDRESS: {
     code: 'invalid_stellar_address',
     sdkClassName: 'InvalidStellarAddressCredenceError',
