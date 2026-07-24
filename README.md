@@ -169,6 +169,8 @@ Every public error code, its HTTP status, and the remediation path is documented
 Full request/response documentation, cURL examples, and import instructions:
 **[docs/api.md](docs/api.md)**
 
+**API versioning & stability policy:** **[docs/API_STABILITY.md](docs/API_STABILITY.md)**
+
 ### OpenAPI spec
 
 ```
