@@ -119,61 +119,34 @@ GET /api/health
 
 ---
 
-### `GET /api/health/workers`
+### `GET /api/version`
 
-> **Requires Redis client.** Returns 404 when Redis is not configured.
-
-Returns the lease + last-heartbeat state of every known distributed-lock key.
-This is an on-call debugging aid for inspecting whether background workers
-hold their locks, when they last heartbeated, and their remaining lease time.
+Returns the running build's git SHA, build timestamp, and Node version.
+Used by support/on-call to confirm which build is deployed in a given
+environment without shell access to the host. Always returns `200`; unlike
+`/api/health`, it performs no dependency checks.
 
 ```
-GET /api/health/workers
+GET /api/version
 ```
 
-**Response `200`**
+**Response `200`** example:
 
 ```json
 {
-  "workers": [
-    {
-      "name": "score-snapshot",
-      "lockKey": "cron:score-snapshot",
-      "held": true,
-      "acquiredAt": "2024-05-06T07:33:20.000Z",
-      "pid": 12345,
-      "ttlMs": 25000
-    }
-  ]
+  "service": "credence-backend",
+  "gitSha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+  "buildTimestamp": "2026-06-25T20:00:00.000Z",
+  "nodeVersion": "v20.10.0"
 }
 ```
 
-**Response `503`** – Redis is unreachable:
-
-```json
-{
-  "workers": [],
-  "error": "Unable to query worker health"
-}
-```
-
-**Response fields**
-
-| Field        | Type                | Description                                              |
-| ------------ | ------------------- | -------------------------------------------------------- |
-| `workers`    | array               | Array of worker lock state entries                       |
-| `workers[].name` | string           | Friendly worker name (e.g. `"score-snapshot"`)           |
-| `workers[].lockKey` | string        | Redis lock key (e.g. `"cron:score-snapshot"`)            |
-| `workers[].held` | boolean          | Whether a worker currently holds the lease               |
-| `workers[].acquiredAt` | string \| null | ISO 8601 timestamp when the lock was acquired            |
-| `workers[].pid` | number \| null    | Process ID that acquired the lock                        |
-| `workers[].ttlMs` | number          | Remaining lease TTL in milliseconds (`-2` = key gone)    |
-
-**cURL example**
-
-```bash
-curl http://localhost:3000/api/health/workers
-```
+`gitSha` and `buildTimestamp` are read from the `GIT_SHA`/`COMMIT_SHA` and
+`BUILD_TIMESTAMP` environment variables when set (recommended for
+production deployments); otherwise `gitSha` falls back to `git rev-parse
+HEAD` in non-production environments, and `buildTimestamp` falls back to
+the `package.json` file's modification time. See
+[`src/utils/version.ts`](../src/utils/version.ts).
 
 ---
 

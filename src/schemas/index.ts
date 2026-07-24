@@ -185,3 +185,8 @@ export {
   type RedirectTarget,
 } from './redirect.js'
 
+export {
+  versionResponseSchema,
+  type VersionResponse,
+} from './version.js'
+

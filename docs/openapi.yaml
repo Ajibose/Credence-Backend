@@ -5820,6 +5820,39 @@ components:
             type: never
           type: never
       type: object
+    versionResponseSchema:
+      def:
+        type: object
+        shape:
+          service:
+            def:
+              type: string
+            type: string
+            format: null
+            minLength: null
+            maxLength: null
+          gitSha:
+            def:
+              type: string
+            type: string
+            format: null
+            minLength: null
+            maxLength: null
+          buildTimestamp:
+            def:
+              type: string
+            type: string
+            format: null
+            minLength: null
+            maxLength: null
+          nodeVersion:
+            def:
+              type: string
+            type: string
+            format: null
+            minLength: null
+            maxLength: null
+      type: object
     voteChoiceSchema:
       def:
         type: enum
@@ -6289,6 +6322,26 @@ components:
             isFinite: true
             format: safeint
       type: object
+    VersionResponse:
+      type: object
+      properties:
+        service:
+          type: string
+          example: credence-backend
+        gitSha:
+          type: string
+          example: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+        buildTimestamp:
+          type: string
+          example: 2026-06-25T20:00:00.000Z
+        nodeVersion:
+          type: string
+          example: v20.10.0
+      required:
+        - service
+        - gitSha
+        - buildTimestamp
+        - nodeVersion
     Wallet:
       type: object
       properties:
@@ -6980,42 +7033,28 @@ paths:
                         type: string
                       nodeVersion:
                         type: string
-  /api/health/workers:
+                    required:
+                      - gitSha
+                      - buildTimestamp
+                      - nodeVersion
+                required:
+                  - status
+                  - service
+                  - version
+  /api/version:
     get:
-      summary: Get worker health status
-      description: Returns per-worker distributed lock state, acquisition timestamp, PID, and remaining TTL.
+      summary: Build version
+      description: Returns the running build's git SHA, build timestamp, and Node
+        version, so support/on-call can confirm which build is deployed.
       tags:
         - Health
       responses:
         "200":
-          description: Worker health data
+          description: Version metadata
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  workers:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/WorkerHealthEntry"
-                  error:
-                    type: string
-                    nullable: true
-                    example: null
-        "500":
-          description: Unable to query worker health
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  workers:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/WorkerHealthEntry"
-                  error:
-                    type: string
-                    example: "Unable to query worker health"
+                $ref: "#/components/schemas/VersionResponse"
   /.well-known/jwks.json:
     get:
       summary: JWKS
