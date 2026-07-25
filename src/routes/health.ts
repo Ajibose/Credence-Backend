@@ -85,5 +85,12 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
     })
   })
 
+  /**
+   * Version: returns build metadata (git sha, build ts, node version).
+   */
+  router.get('/version', (_req: Request, res: Response) => {
+    res.status(200).json(getVersionMetadata())
+  })
+
   return router
 }

@@ -50,6 +50,20 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
+  path: '/api/health/version',
+  summary: 'Version metadata',
+  description: 'Returns build metadata (git sha, build ts, node version).',
+  tags: ['Health'],
+  responses: {
+    200: {
+      description: 'Version info',
+      content: { 'application/json': { schema: z.object({ gitSha: z.string(), buildTimestamp: z.string(), nodeVersion: z.string() }) } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'get',
   path: '/.well-known/jwks.json',
   summary: 'JWKS',
   description: 'JSON Web Key Set for verifying JWT signatures.',

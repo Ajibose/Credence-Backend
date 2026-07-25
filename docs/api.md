@@ -110,6 +110,26 @@ GET /api/health
 
 ---
 
+### `GET /api/health/version`
+
+Returns build metadata (git sha, build ts, node version). Used for support triage.
+
+```
+GET /api/health/version
+```
+
+**Response `200`** example:
+
+```json
+{
+  "gitSha": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2",
+  "buildTimestamp": "2026-06-25T20:00:00.000Z",
+  "nodeVersion": "v20.10.0"
+}
+```
+
+---
+
 ### `GET /api/trust/:address`
 
 Returns the computed trust score and identity data for an Ethereum address.
