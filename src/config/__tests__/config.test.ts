@@ -50,6 +50,7 @@ describe('validateConfig – valid environments', () => {
     expect(config.nodeEnv).toBe('development')
     expect(config.logLevel).toBe('info')
     expect(config.jwt.expiry).toBe('1h')
+    expect(config.jwt.jwksCacheMaxAgeSeconds).toBe(300)
     expect(config.features.trustScoring).toBe(false)
     expect(config.features.bondEvents).toBe(false)
     expect(config.cors.origin).toBe('*')
@@ -100,6 +101,11 @@ describe('validateConfig – valid environments', () => {
   it('accepts custom JWT_EXPIRY', () => {
     const config = validateConfig(validEnv({ JWT_EXPIRY: '7d' }))
     expect(config.jwt.expiry).toBe('7d')
+  })
+
+  it('accepts custom JWKS_CACHE_MAX_AGE_SECONDS', () => {
+    const config = validateConfig(validEnv({ JWKS_CACHE_MAX_AGE_SECONDS: '600' }))
+    expect(config.jwt.jwksCacheMaxAgeSeconds).toBe(600)
   })
 
   it('applies outbound retry defaults when env overrides are omitted', () => {

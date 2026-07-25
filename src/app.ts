@@ -65,7 +65,13 @@ app.use(compressionMiddleware)
 app.use(express.json())
 
 // JWT public key set — unauthenticated, per RFC 8414 / OIDC Discovery conventions
-app.use('/.well-known/jwks.json', createJwksRouter())
+let jwksCacheMaxAge = 300
+try {
+  jwksCacheMaxAge = validateConfig(process.env).jwt.jwksCacheMaxAgeSeconds
+} catch {
+  // default applies
+}
+app.use('/.well-known/jwks.json', createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }))
 
 // Health – full readiness check with per-dependency status
 const healthProbes = createDefaultProbes()
@@ -161,7 +167,7 @@ app.use(requestSizeLimitErrorHandler);
 app.use(tenantContextMiddleware);
 app.use(gracefulDegradeMiddleware);
 
-app.use("/.well-known/jwks.json", createJwksRouter());
+app.use("/.well-known/jwks.json", createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }));
 
 const healthProbes = createDefaultProbes();
 app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
