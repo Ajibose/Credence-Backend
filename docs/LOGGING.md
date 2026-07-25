@@ -87,3 +87,7 @@ function processUserUpdate(payload: any, reqId: string) {
 ```
 
 By following these rules, we ensure that our logs remain a powerful and secure tool for the entire team.
+
+## See Also
+
+- **[Log Retention Policy](LOG_RETENTION.md)** — how long each log type is kept and where.
