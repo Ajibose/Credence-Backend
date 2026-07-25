@@ -31,6 +31,14 @@ To help clients debug their retry loops, you may optionally provide an `x-reques
 x-request-attempt: 3
 ```
 
+## Cache Status Response Header
+
+For endpoints that utilize caching (such as analytics summaries), the response will include an `x-cache` header indicating the cache transaction status:
+
+* `HIT` — The request was fully served from the cache.
+* `MISS` — The cache did not contain the requested data, and it was fetched from the database or origin server.
+* `STALE` — The request was served from the cache, but the cached data was determined to be stale.
+
 ---
 
 ## Authentication
