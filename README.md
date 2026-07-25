@@ -246,6 +246,7 @@ Comprehensive monitoring with Prometheus and Grafana is available. See **[docs/m
 - Grafana dashboard setup
 - Prometheus configuration
 - Alert rules
+- Queue monitoring on-call guide: **[docs/QUEUE_MONITORING.md](docs/QUEUE_MONITORING.md)**
 - Deployment instructions
 
 Quick start:
