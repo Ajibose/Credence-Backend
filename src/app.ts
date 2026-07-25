@@ -25,6 +25,7 @@ import { validateConfig } from "./config/index.js";
 import { createAttestationRouter } from "./routes/attestations.js";
 import { tenantContextMiddleware } from "./middleware/tenantContext.js";
 import { gracefulDegradeMiddleware } from "./middleware/gracefulDegrade.js";
+import { createDevResponseValidator } from "./middleware/validateResponse.js";
 import {
   compressionMiddleware,
   compressionMetricsMiddleware,
@@ -160,6 +161,17 @@ app.use(jsonBodyParser);
 app.use(requestSizeLimitErrorHandler);
 app.use(tenantContextMiddleware);
 app.use(gracefulDegradeMiddleware);
+
+// ── Development response validation ────────────────────────────────────────
+// Automatically validates all API responses against the OpenAPI spec in
+// non-production environments. Fails loud (console.error) when a handler
+// emits a shape not declared in docs/openapi.yaml. Never blocks the response.
+// In production this is a complete no-op.
+const devResponseValidator = await createDevResponseValidator()
+if (devResponseValidator) {
+  app.use(devResponseValidator)
+}
+// ────────────────────────────────────────────────────────────────────────────
 
 app.use("/.well-known/jwks.json", createJwksRouter());
 
