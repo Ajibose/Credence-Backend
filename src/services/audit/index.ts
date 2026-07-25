@@ -97,6 +97,24 @@ export class AuditLogService {
   }
 
   /**
+   * Append a batch of audit log entries while maintaining actor_id integrity.
+   *
+   * @param inputs - Array of audit log input objects
+   * @returns Array of created audit log entries
+   */
+  async appendBatch(inputs: AuditLogInput[]): Promise<AuditLogEntry[]> {
+    return this.repository.appendBatch(inputs)
+  }
+
+  /**
+   * Log a batch of audit actions.
+   * Alias for appendBatch.
+   */
+  async logBatch(inputs: AuditLogInput[]): Promise<AuditLogEntry[]> {
+    return this.appendBatch(inputs)
+  }
+
+  /**
    * Get audit logs with optional filtering
    * 
    * SECURITY: Tenant scoping is DENY-BY-DEFAULT. Either tenantId or allowSuperScope must be provided.
