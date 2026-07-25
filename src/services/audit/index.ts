@@ -10,6 +10,9 @@ import {
   type AuditChainVerificationRepository,
 } from '../../db/repositories/auditChainVerificationRepository.js'
 import { toChainVerificationState } from './chainStatus.js'
+import { logger } from '../../utils/logger.js'
+import { redact } from '../../observability/redaction.js'
+import { LogEventType } from '../../observability/logSchemas.js'
 import type {
   AuditChainVerificationState,
   AuditLogEntry,
@@ -66,7 +69,9 @@ export class AuditLogService {
     requestId?: string,
   ): Promise<AuditLogEntry> {
     if (typeof inputOrTenantId !== 'string') {
-      return this.repository.append(inputOrTenantId)
+      const entry = await this.repository.append(inputOrTenantId)
+      this.logAuditEvent(entry)
+      return entry
     }
 
     const tenantId = inputOrTenantId
@@ -81,7 +86,7 @@ export class AuditLogService {
       ...(targetUserEmail ? { targetUserEmail } : {}),
     }
 
-    return this.repository.append({
+    const entry = await this.repository.append({
       tenantId,
       actorId: actorId ?? 'unknown',
       actorEmail: actorEmail ?? 'unknown@unknown',
@@ -94,6 +99,33 @@ export class AuditLogService {
       ipAddress,
       requestId,
     })
+    this.logAuditEvent(entry)
+    return entry
+  }
+
+  /**
+   * Emit a schema-validated structured log line for a recorded audit entry.
+   *
+   * Every audit log line must carry tenantId so log aggregation can be
+   * scoped per tenant; the allowlist schema for AUDIT_LOG_RECORDED drops
+   * anything else (e.g. actorEmail, details) that isn't explicitly listed.
+   */
+  private logAuditEvent(entry: AuditLogEntry): void {
+    const payload = {
+      eventType: LogEventType.AUDIT_LOG_RECORDED,
+      tenantId: entry.tenantId,
+      action: entry.action,
+      resourceType: entry.resourceType,
+      status: entry.status,
+      requestId: entry.requestId,
+    }
+    const redacted = redact(payload, { eventType: LogEventType.AUDIT_LOG_RECORDED })
+
+    if (entry.status === 'failure') {
+      logger.warn(redacted)
+    } else {
+      logger.info(redacted)
+    }
   }
 
   /**
