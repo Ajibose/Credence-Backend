@@ -51,10 +51,12 @@ vi.mock('../../services/audit/index.js', () => ({
   AuditAction: {
     UPDATE_SETTINGS: 'UPDATE_SETTINGS',
     LIST_USERS: 'LIST_USERS',
-    LIST_FAILED_EVENTS: 'LIST_FAILED_EVENTS',
     REPLAY_REQUEST: 'REPLAY_REQUEST',
     EXPORT_AUDIT_LOGS: 'EXPORT_AUDIT_LOGS',
+    RELOAD_CONFIG: 'RELOAD_CONFIG',
+    PURGE_CACHE: 'PURGE_CACHE',
   },
+
 }))
 
 // ---- Mock AdminService & ImpersonationService ----
@@ -505,11 +507,12 @@ describe('Admin Router - Strict Validation', () => {
       expect(callArgs[0]).toBe('tenant-1')
       expect(callArgs[1]).toBe('admin-1')
       expect(callArgs[2]).toBe('admin@test.com')
-      expect(callArgs[3]).toBe('UPDATE_SETTINGS')
+      expect(callArgs[3]).toBe('RELOAD_CONFIG')
       expect(callArgs[4]).toBe('system')
 
       // The details should contain the action marker
-      expect(callArgs[6]).toEqual({ action: 'refresh-secrets' })
+      expect(callArgs[6]).toEqual({ action: 'reload-config' })
+
 
       // ipAddress and requestId are passed
       expect(callArgs[9]).toBeDefined() // ipAddress
