@@ -440,6 +440,20 @@ export const envSchema = z.object({
     .default('3600000')
     .transform(Number)
     .pipe(z.number().int().min(60000)), // minimum 1 minute
+
+  // Expired-sessions sweeper
+  /** TTL in seconds for session rows (default: 86400 = 24 hours). */
+  SESSION_TTL_SECONDS: z
+    .string()
+    .default('86400')
+    .transform(Number)
+    .pipe(z.number().int().min(60).max(2592000)), // 1 min to 30 days
+  /** Interval in ms between expired-sessions sweeper runs (default: 3600000 = 1 hour). */
+  SESSION_SWEEP_INTERVAL_MS: z
+    .string()
+    .default('3600000')
+    .transform(Number)
+    .pipe(z.number().int().min(60000)), // minimum 1 minute
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -588,6 +602,12 @@ export interface Config {
     ttlSeconds: number
     /** Interval in ms between sweeper cleanup runs. Default: 3600000 (1 h). */
     sweeperIntervalMs: number
+  }
+  sessionSweep: {
+    /** TTL in seconds for session rows. Default: 86400 (24 h). */
+    ttlSeconds: number
+    /** Interval in ms between sweeper runs. Default: 3600000 (1 h). */
+    sweepIntervalMs: number
   }
 }
 
@@ -789,6 +809,10 @@ function mapEnvToConfig(env: Env): Config {
     idempotency: {
       ttlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
       sweeperIntervalMs: env.IDEMPOTENCY_SWEEPER_INTERVAL_MS,
+    },
+    sessionSweep: {
+      ttlSeconds: env.SESSION_TTL_SECONDS,
+      sweepIntervalMs: env.SESSION_SWEEP_INTERVAL_MS,
     },
   }
 

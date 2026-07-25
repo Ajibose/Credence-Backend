@@ -34,6 +34,7 @@ import { logger } from "./utils/logger.js";
 import { OutboxJob } from "./jobs/outbox.js";
 import { RequestSnapshotsSweeper } from "./jobs/requestSnapshotsSweeper.js";
 import { IdempotencyKeySweeper } from "./jobs/idempotencyKeySweeper.js";
+import { ExpiredSessionsSweeper } from "./jobs/expiredSessionsSweeper.js";
 
 app.use("/api/admin", createAdminRouter());
 app.use("/api/governance", governanceRouter);
@@ -52,6 +53,7 @@ let wss: ReturnType<typeof createWsSubscriptionServer> | null = null;
 let invalidationBus: ReturnType<typeof getInvalidationBus> | null = null;
 let requestSnapshotsSweeper: RequestSnapshotsSweeper | null = null;
 let idempotencyKeySweeper: IdempotencyKeySweeper | null = null;
+let expiredSessionsSweeper: ExpiredSessionsSweeper | null = null;
 
 function installShutdownHandlers(): void {
   if (!shutdownManager) return;
@@ -265,6 +267,19 @@ if (process.env.NODE_ENV !== "test") {
       logger.error(`Failed to start Idempotency Key Sweeper: ${message}`, error);
     }
 
+    // Start Expired Sessions sweeper
+    try {
+      expiredSessionsSweeper = new ExpiredSessionsSweeper(pool, {
+        intervalMs: config.sessionSweep.sweepIntervalMs,
+        logger: logger.info,
+      });
+      expiredSessionsSweeper.start();
+      logger.info("[Main] Expired Sessions Sweeper started");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logger.error(`Failed to start Expired Sessions Sweeper: ${message}`, error);
+    }
+
     // Start cache invalidation bus
     try {
       invalidationBus = getInvalidationBus();
@@ -287,6 +302,10 @@ if (process.env.NODE_ENV !== "test") {
         if (requestSnapshotsSweeper) {
           logger.info("[Main] Stopping Request Snapshots Sweeper");
           requestSnapshotsSweeper.stop();
+        }
+        if (expiredSessionsSweeper) {
+          logger.info("[Main] Stopping Expired Sessions Sweeper");
+          expiredSessionsSweeper.stop();
         }
         if (pgStatActivitySnapshotJob) {
           logger.info("[Main] Stopping pg_stat_activity Snapshot Job");
