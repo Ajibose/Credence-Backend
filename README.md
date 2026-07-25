@@ -171,7 +171,8 @@ List endpoints support offset/page and cursor-based pagination. See **[docs/PAGI
 Full request/response documentation, cURL examples, and import instructions:
 **[docs/api.md](docs/api.md)**
 
-**API versioning & stability policy:** **[docs/API_STABILITY.md](docs/API_STABILITY.md)**
+**API versioning & stability policy:** **[docs/API_STABILITY.md](docs/API_STABILITY.md)**  
+**API deprecation policy:** **[docs/DEPRECATION_POLICY.md](docs/DEPRECATION_POLICY.md)**
 
 ### OpenAPI spec
 
