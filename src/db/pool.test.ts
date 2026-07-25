@@ -10,6 +10,7 @@ describe('DB Pool configuration', () => {
 
   afterEach(() => {
     process.env = envSnapshot
+    vi.restoreAllMocks()
     vi.resetModules()
   })
 
@@ -51,10 +52,54 @@ describe('DB Pool configuration', () => {
     expect(replicaPool.options.options).toContain('-c statement_timeout=')
   })
 
+  it('default idleTimeoutMillis is 300 000 ms (5 minutes) when DB_POOL_IDLE_TIMEOUT_MS is unset', async () => {
+    delete process.env.DB_POOL_IDLE_TIMEOUT_MS
+    vi.resetModules()
+    const { pool, workerPool, replicaPool } = await import('./pool.js')
+    // node-postgres exposes idleTimeoutMillis on pool.options
+    expect(pool.options.idleTimeoutMillis).toBe(300_000)
+    expect(workerPool.options.idleTimeoutMillis).toBe(300_000)
+    expect(replicaPool.options.idleTimeoutMillis).toBe(300_000)
+  })
+
+  it('idleTimeoutMillis can be overridden via DB_POOL_IDLE_TIMEOUT_MS', async () => {
+    process.env.DB_POOL_IDLE_TIMEOUT_MS = '60000'
+    vi.resetModules()
+    const { pool, workerPool, replicaPool } = await import('./pool.js')
+    expect(pool.options.idleTimeoutMillis).toBe(60_000)
+    expect(workerPool.options.idleTimeoutMillis).toBe(60_000)
+    expect(replicaPool.options.idleTimeoutMillis).toBe(60_000)
+  })
+
   it('replicaPool is a separate Pool instance', async () => {
     const { pool, replicaPool } = await import('./pool.js')
     expect(replicaPool).toBeInstanceOf(Pool)
     expect(replicaPool).not.toBe(pool)
+  })
+
+  it('rejects a tenant that exceeds its connection budget', async () => {
+    process.env.DB_TENANT_CONNECTION_BUDGET = '1'
+
+    const connectSpy = vi.spyOn(Pool.prototype, 'connect').mockResolvedValueOnce({
+      release: vi.fn(),
+    } as any)
+
+    const { pool, TenantConnectionBudgetError } = await import('./pool.js')
+    const { runWithTenant } = await import('../utils/tenantContext.js')
+
+    const firstClient = await runWithTenant('tenant-budget', () => pool.connect())
+
+    await expect(
+      runWithTenant('tenant-budget', () => pool.connect())
+    ).rejects.toMatchObject({
+      name: TenantConnectionBudgetError.name,
+      tenantId: 'tenant-budget',
+      limit: 1,
+      code: 'rate_limit_exceeded',
+    })
+
+    expect(connectSpy).toHaveBeenCalledTimes(1)
+    firstClient.release()
   })
 
   it('withReplica uses replicaPool when lag is within bounds', async () => {

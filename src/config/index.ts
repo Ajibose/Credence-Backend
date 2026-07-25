@@ -52,7 +52,7 @@ export const envSchema = z.object({
     .pipe(z.number().int().min(1).max(200)),
   DB_POOL_IDLE_TIMEOUT_MS: z
     .string()
-    .default('30000')
+    .default('300000') // 5 minutes: kills idle connections to keep pool counts predictable (#724)
     .transform(Number)
     .pipe(z.number().int().min(0)),
   DB_POOL_CONNECTION_TIMEOUT_MS: z
@@ -60,6 +60,11 @@ export const envSchema = z.object({
     .default('5000')
     .transform(Number)
     .pipe(z.number().int().min(1000).max(30000)),
+  DB_TENANT_CONNECTION_BUDGET: z
+    .string()
+    .default('5')
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(200)),
   DB_STATEMENT_TIMEOUT_MS: z
     .string()
     .default('30000')
@@ -85,6 +90,16 @@ export const envSchema = z.object({
     .default('10000')
     .transform(Number)
     .pipe(z.number().int().min(100).max(60000)),
+  /**
+   * Minimum query duration (ms) that triggers a slow-query log entry with
+   * the query's EXPLAIN plan attached. Set to 0 to disable. Default: 1000
+   * (1 second) — see docs/observability.md#slow-query-logging.
+   */
+  SLOW_QUERY_THRESHOLD_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
 
   // Redis
   REDIS_URL: z.string().url({ message: 'REDIS_URL must be a valid URL' }),
@@ -163,6 +178,22 @@ export const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().min(60000)),
 
+  // Outbox worker leadership lease (advisory-lock based)
+  OUTBOX_LEADER_LEASE_ENABLED: z
+    .string()
+    .default('false')
+    .transform((val) => val === 'true'),
+  OUTBOX_LEADER_LEASE_RETRY_MS: z
+    .string()
+    .default('5000')
+    .transform(Number)
+    .pipe(z.number().int().min(1000).max(60000)),
+  OUTBOX_LEADER_LEASE_HEARTBEAT_MS: z
+    .string()
+    .default('10000')
+    .transform(Number)
+    .pipe(z.number().int().min(1000).max(60000)),
+
   // Request snapshots retention
   REQUEST_SNAPSHOT_RETENTION_DAYS: z
     .string()
@@ -214,6 +245,11 @@ export const envSchema = z.object({
   OUTBOUND_RETRY_WEBHOOK_JITTER_STRATEGY: z.enum(['none', 'full', 'equal']).optional(),
 
   // Timeout budgets
+  TIMEOUT_GLOBAL_MS: z
+    .string()
+    .default('30000') // 30s default global budget
+    .transform(Number)
+    .pipe(z.number().int().min(1000).max(300000)),
   TIMEOUT_DB_MS: z
     .string()
     .default('2000')
@@ -390,6 +426,20 @@ export const envSchema = z.object({
 
   // Metrics endpoint CIDR whitelist (comma-separated IPv4 CIDRs)
   METRICS_ALLOWED_CIDRS: z.string().optional(),
+
+  // Idempotency middleware
+  /** TTL in seconds for idempotency keys (default: 86400 = 24 hours). */
+  IDEMPOTENCY_TTL_SECONDS: z
+    .string()
+    .default('86400')
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(604800)), // 1 s to 7 days
+  /** Interval in ms between idempotency key sweeper runs (default: 3600000 = 1 hour). */
+  IDEMPOTENCY_SWEEPER_INTERVAL_MS: z
+    .string()
+    .default('3600000')
+    .transform(Number)
+    .pipe(z.number().int().min(60000)), // minimum 1 minute
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -420,6 +470,8 @@ export interface Config {
     workerPool: {
       max: number
     }
+    /** Minimum query duration (ms) that triggers a slow-query log entry. 0 disables. */
+    slowQueryThresholdMs: number
   }
   redis: {
     url: string
@@ -450,6 +502,11 @@ export interface Config {
     publishedRetentionDays: number
     failedRetentionDays: number
     cleanupIntervalMs: number
+    leaderLease: {
+      enabled: boolean
+      retryIntervalMs: number
+      heartbeatIntervalMs: number
+    }
   }
   requestSnapshots: {
     retentionDays: number
@@ -466,6 +523,7 @@ export interface Config {
     origin: string
   }
   timeouts: {
+    global: number
     db: number
     cache: number
     queue: number
@@ -525,6 +583,12 @@ export interface Config {
     defaultLowCreditThreshold: number
   }
   metricsAllowedCidrs: string[] | undefined
+  idempotency: {
+    /** TTL in seconds for HTTP idempotency keys. Default: 86400 (24 h). */
+    ttlSeconds: number
+    /** Interval in ms between sweeper cleanup runs. Default: 3600000 (1 h). */
+    sweeperIntervalMs: number
+  }
 }
 
 function parseCostWeights(raw: string): Record<string, number> {
@@ -619,6 +683,7 @@ function mapEnvToConfig(env: Env): Config {
       workerPool: {
         max: env.DB_WORKER_POOL_MAX,
       },
+      slowQueryThresholdMs: env.SLOW_QUERY_THRESHOLD_MS,
     },
     redis: {
       url: env.REDIS_URL,
@@ -643,6 +708,11 @@ function mapEnvToConfig(env: Env): Config {
       publishedRetentionDays: env.OUTBOX_PUBLISHED_RETENTION_DAYS,
       failedRetentionDays: env.OUTBOX_FAILED_RETENTION_DAYS,
       cleanupIntervalMs: env.OUTBOX_CLEANUP_INTERVAL_MS,
+      leaderLease: {
+        enabled: env.OUTBOX_LEADER_LEASE_ENABLED,
+        retryIntervalMs: env.OUTBOX_LEADER_LEASE_RETRY_MS,
+        heartbeatIntervalMs: env.OUTBOX_LEADER_LEASE_HEARTBEAT_MS,
+      },
     },
     requestSnapshots: {
       retentionDays: env.REQUEST_SNAPSHOT_RETENTION_DAYS,
@@ -656,6 +726,7 @@ function mapEnvToConfig(env: Env): Config {
       origin: env.CORS_ORIGIN,
     },
     timeouts: {
+      global: env.TIMEOUT_GLOBAL_MS,
       db: env.TIMEOUT_DB_MS,
       cache: env.TIMEOUT_CACHE_MS,
       queue: env.TIMEOUT_QUEUE_MS,
@@ -715,6 +786,10 @@ function mapEnvToConfig(env: Env): Config {
     metricsAllowedCidrs: env.METRICS_ALLOWED_CIDRS
       ? env.METRICS_ALLOWED_CIDRS.split(',').map(s => s.trim()).filter(Boolean)
       : undefined,
+    idempotency: {
+      ttlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
+      sweeperIntervalMs: env.IDEMPOTENCY_SWEEPER_INTERVAL_MS,
+    },
   }
 
   if (env.HORIZON_URL) {

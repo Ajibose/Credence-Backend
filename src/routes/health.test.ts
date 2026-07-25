@@ -10,6 +10,27 @@ function appWithHealth(probes: Parameters<typeof createHealthRouter>[0] = {}) {
   return app
 }
 
+// ---------------------------------------------------------------------------
+// In-memory Redis stub for the worker endpoint tests
+// ---------------------------------------------------------------------------
+function makeFakeRedis() {
+  const store = new Map<string, { value: string; ttlSeconds: number }>()
+  return {
+    _store: store,
+    async get(key: string) {
+      const entry = store.get(key)
+      return entry ? entry.value : null
+    },
+    async ttl(key: string) {
+      const entry = store.get(key)
+      if (!entry) return -2
+      return entry.ttlSeconds
+    },
+    async scan(cursor: number, _opts: { MATCH: string; COUNT: number }) {
+      const keys = Array.from(store.keys())
+      return { cursor: 0, keys }
+    },
+  }
 const allUp: Parameters<typeof createHealthRouter>[0] = {
   postgres: async () => ({ status: 'up', latencyMs: 2 }),
   redis: async () => ({ status: 'up', latencyMs: 1 }),
@@ -150,6 +171,27 @@ describe('Health routes', () => {
     })
   })
 
+  describe('GET /api/health/dependencies', () => {
+    it('returns dependencies object and 200 when up', async () => {
+      const app = appWithHealth(allUp)
+      const res = await request(app).get('/api/health/dependencies')
+      expect(res.status).toBe(200)
+      expect(res.body.postgres.status).toBe('up')
+      expect(res.body.redis.status).toBe('up')
+      expect(res.body).not.toHaveProperty('status', 'ok') // Not the full envelope
+    })
+
+    it('returns dependencies object and 503 when down', async () => {
+      const app = appWithHealth({
+        ...allUp,
+        postgres: async () => ({ status: 'down' }),
+      })
+      const res = await request(app).get('/api/health/dependencies')
+      expect(res.status).toBe(503)
+      expect(res.body.postgres.status).toBe('down')
+    })
+  })
+
   describe('GET /api/health/live (liveness)', () => {
     it('returns 200 always even when all deps are down', async () => {
       const app = appWithHealth({
@@ -173,6 +215,71 @@ describe('Health routes', () => {
       const app = appWithHealth(allUp)
       const res = await request(app).get('/api/health/live')
       expect(res.body).not.toHaveProperty('dependencies')
+    })
+  })
+
+  describe('GET /api/health/workers', () => {
+    it('returns 404 when no redisClient configured', async () => {
+      const app = appWithHealth({})
+      const res = await request(app).get('/api/health/workers')
+      expect(res.status).toBe(404)
+    })
+
+    it('returns worker states when redisClient is provided', async () => {
+      const redis = makeFakeRedis()
+      redis._store.set('cron:score-snapshot', {
+        value: '12345-1700000000000-abc',
+        ttlSeconds: 25,
+      })
+
+      const app = appWithHealth({ redisClient: redis as any })
+      const res = await request(app).get('/api/health/workers')
+      expect(res.status).toBe(200)
+      expect(res.body.workers).toBeInstanceOf(Array)
+      expect(res.body.workers).toHaveLength(1)
+
+      const worker = res.body.workers[0]
+      expect(worker).toMatchObject({
+        name: 'score-snapshot',
+        lockKey: 'cron:score-snapshot',
+        held: true,
+        pid: 12345,
+        acquiredAt: '2023-11-14T22:13:20.000Z',
+      })
+      // TTL is 25s => 25_000ms; allow a small tolerance for inaccuracies
+      expect(worker.ttlMs).toBe(25_000)
+    })
+
+    it('reports not-held workers when no keys exist', async () => {
+      const redis = makeFakeRedis()
+
+      const app = appWithHealth({ redisClient: redis as any })
+      const res = await request(app).get('/api/health/workers')
+      expect(res.status).toBe(200)
+      expect(res.body.workers).toHaveLength(1)
+      expect(res.body.workers[0]).toMatchObject({
+        name: 'score-snapshot',
+        lockKey: 'cron:score-snapshot',
+        held: false,
+        pid: null,
+        acquiredAt: null,
+        ttlMs: -2,
+      })
+    })
+
+    it('gracefully reports all workers as not-held when Redis is down', async () => {
+      const redis = makeFakeRedis()
+      redis.scan = async () => {
+        throw new Error('Connection refused')
+      }
+
+      const app = appWithHealth({ redisClient: redis as any })
+      const res = await request(app).get('/api/health/workers')
+      // Graceful degradation: 200 with known workers reported as not-held
+      expect(res.status).toBe(200)
+      expect(res.body.workers).toBeInstanceOf(Array)
+      expect(res.body.workers.length).toBeGreaterThanOrEqual(1)
+      expect(res.body.workers[0].held).toBe(false)
     })
   })
 })
