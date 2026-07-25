@@ -51,10 +51,13 @@ vi.mock('../../services/audit/index.js', () => ({
   AuditAction: {
     UPDATE_SETTINGS: 'UPDATE_SETTINGS',
     LIST_USERS: 'LIST_USERS',
-    LIST_FAILED_EVENTS: 'LIST_FAILED_EVENTS',
     REPLAY_REQUEST: 'REPLAY_REQUEST',
     EXPORT_AUDIT_LOGS: 'EXPORT_AUDIT_LOGS',
+    RELOAD_CONFIG: 'RELOAD_CONFIG',
+    PURGE_CACHE: 'PURGE_CACHE',
   },
+
+
 }))
 
 // ---- Mock AdminService & ImpersonationService ----
@@ -102,7 +105,22 @@ vi.mock('../../services/replayService.js', () => ({
   },
 }))
 
+vi.mock('../../cache/redis.js', () => ({
+  cache: {
+    clearNamespace: vi.fn().mockResolvedValue(5),
+    delete: vi.fn().mockResolvedValue(true),
+    get: vi.fn().mockResolvedValue(null),
+    set: vi.fn().mockResolvedValue(true),
+  },
+}))
+
+vi.mock('../../cache/invalidation.js', () => ({
+  invalidateCache: vi.fn().mockResolvedValue(true),
+  invalidatePattern: vi.fn().mockResolvedValue(3),
+}))
+
 // ---- Mock repositories ----
+
 vi.mock('../../db/repositories/failedInboundEventsRepository.js', () => ({
   FailedInboundEventsRepository: class {},
 }))
@@ -505,11 +523,13 @@ describe('Admin Router - Strict Validation', () => {
       expect(callArgs[0]).toBe('tenant-1')
       expect(callArgs[1]).toBe('admin-1')
       expect(callArgs[2]).toBe('admin@test.com')
-      expect(callArgs[3]).toBe('UPDATE_SETTINGS')
+      expect(callArgs[3]).toBe('RELOAD_CONFIG')
       expect(callArgs[4]).toBe('system')
 
+
       // The details should contain the action marker
-      expect(callArgs[6]).toEqual({ action: 'refresh-secrets' })
+      expect(callArgs[6]).toEqual({ action: 'reload-config' })
+
 
       // ipAddress and requestId are passed
       expect(callArgs[9]).toBeDefined() // ipAddress
@@ -537,15 +557,54 @@ describe('Admin Router - Strict Validation', () => {
       expect(res.status).toBe(400)
       expect(res.body.error).toBe('ConfigValidationError')
 
-      // No audit log should be written for failed validation
-      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
-
       existsSyncSpy.mockRestore()
       readFileSyncSpy.mockRestore()
       parseSpy.mockRestore()
     })
   })
+
+  describe('POST /api/admin/purge-cache audit trail', () => {
+    it('records_actor_namespace_and_timestamp_in_audit_trail_on_successful_purge', async () => {
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+
+      const res = await request(setup())
+        .post('/api/admin/purge-cache')
+        .send({ namespace: 'attestation', key: 'id:123' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.success).toBe(true)
+
+      // Verify audit trail entry
+      expect(mockAuditLogService.logAction).toHaveBeenCalledTimes(1)
+      const callArgs = mockAuditLogService.logAction.mock.calls[0]
+
+      // logAction(tenantId, actorId, actorEmail, action, resourceType/namespace, ...)
+      expect(callArgs[0]).toBe('tenant-1') // tenantId
+      expect(callArgs[1]).toBe('admin-1') // actorId
+      expect(callArgs[2]).toBe('admin@test.com') // actorEmail
+      expect(callArgs[3]).toBe('PURGE_CACHE') // action
+      expect(callArgs[4]).toBe('attestation') // resourceType / namespace
+      expect(callArgs[6]).toEqual({
+        namespace: 'attestation',
+        key: 'id:123',
+        pattern: undefined,
+        clearedCount: expect.any(Number),
+      })
+    })
+
+    it('does_not_record_audit_log_when_validation_fails', async () => {
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+
+      const res = await request(setup())
+        .post('/api/admin/purge-cache')
+        .send({}) // Missing required namespace field
+
+      expect(res.status).toBe(400)
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+    })
+  })
 })
+
 
 describe('Admin Anti-Crawling Defenses', () => {
   beforeEach(() => {

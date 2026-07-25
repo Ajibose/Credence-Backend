@@ -36,13 +36,17 @@ import {
   revokeApiKeyBodySchema,
   issueImpersonationTokenBodySchema,
   replayEventBodySchema,
+  purgeCacheBodySchema,
 } from '../../schemas/admin.js'
-import type { ReplayEventBody } from '../../schemas/admin.js'
+import type { ReplayEventBody, PurgeCacheBody } from '../../schemas/admin.js'
+import { cache } from '../../cache/redis.js'
+import { invalidateCache, invalidatePattern } from '../../cache/invalidation.js'
 import { z } from 'zod'
 import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
 import { validateConfig, ConfigValidationError } from "../../config/index.js";
 import fs from "fs";
 import dotenv from "dotenv";
+
 
 /**
  * Create the admin router with role and user management endpoints
@@ -195,6 +199,62 @@ export function createAdminRouter(): Router {
    * @deprecated Use /reload-config instead.
    */
   router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/purge-cache
+   * Purges cache by key or pattern in a specified namespace; audit-logged.
+   */
+  router.post(
+    '/purge-cache',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: purgeCacheBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { namespace, key, pattern } = req.body as PurgeCacheBody
+
+        let clearedCount = 0
+        if (pattern) {
+          clearedCount = await invalidatePattern(namespace, pattern)
+        } else if (key) {
+          const success = await invalidateCache(namespace, key)
+          clearedCount = success ? 1 : 0
+        } else {
+          clearedCount = await cache.clearNamespace(namespace)
+        }
+
+        // Audit log the purge action
+        void auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.PURGE_CACHE,
+          namespace,
+          undefined,
+          { namespace, key, pattern, clearedCount },
+          undefined,
+          undefined,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json({
+          success: true,
+          message: `Cache purged for namespace '${namespace}'`,
+          data: {
+            namespace,
+            clearedCount,
+          },
+        })
+      } catch (err) {
+        next(err)
+      }
+    }
+  );
+
 
   /**
    * POST /api/admin/keys/revoke

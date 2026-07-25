@@ -43,7 +43,9 @@ export enum AuditAction {
   SET_RATE_LIMIT_OVERRIDE = 'SET_RATE_LIMIT_OVERRIDE',
   REMOVE_RATE_LIMIT_OVERRIDE = 'REMOVE_RATE_LIMIT_OVERRIDE',
   UPDATE_SETTINGS = 'UPDATE_SETTINGS',
+  PURGE_CACHE = 'PURGE_CACHE',
 }
+
 
 export type AuditStatus = 'success' | 'failure'
 
