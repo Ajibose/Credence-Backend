@@ -305,3 +305,36 @@ describe('envSchema', () => {
     expect(result.success).toBe(true)
   })
 })
+
+// ─── Bond / attestation cache TTL ────────────────────────────────────────────
+
+describe('validateConfig – bond/attestation cache TTL', () => {
+  it('defaults bondCache.ttl and attestationCache.ttl to 300 seconds', () => {
+    const config = validateConfig(validEnv())
+
+    expect(config.bondCache.ttl).toBe(300)
+    expect(config.attestationCache.ttl).toBe(300)
+  })
+
+  it('applies BOND_CACHE_TTL_SECONDS and ATTESTATION_CACHE_TTL_SECONDS overrides', () => {
+    const config = validateConfig(validEnv({
+      BOND_CACHE_TTL_SECONDS: '900',
+      ATTESTATION_CACHE_TTL_SECONDS: '120',
+    }))
+
+    expect(config.bondCache.ttl).toBe(900)
+    expect(config.attestationCache.ttl).toBe(120)
+  })
+
+  it('rejects a non-numeric BOND_CACHE_TTL_SECONDS', () => {
+    expect(() =>
+      validateConfig(validEnv({ BOND_CACHE_TTL_SECONDS: 'not-a-number' })),
+    ).toThrow(ConfigValidationError)
+  })
+
+  it('rejects an out-of-range ATTESTATION_CACHE_TTL_SECONDS', () => {
+    expect(() =>
+      validateConfig(validEnv({ ATTESTATION_CACHE_TTL_SECONDS: '999999' })),
+    ).toThrow(ConfigValidationError)
+  })
+})

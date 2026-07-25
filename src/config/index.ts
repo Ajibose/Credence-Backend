@@ -18,6 +18,18 @@ export const envSchema = z.object({
       .default('600') // 10 minutes
       .transform(Number)
       .pipe(z.number().int().min(60).max(86400)),
+    // Bond cache TTL (seconds)
+    BOND_CACHE_TTL_SECONDS: z
+      .string()
+      .default('300') // 5 minutes
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(86400)),
+    // Attestation cache TTL (seconds)
+    ATTESTATION_CACHE_TTL_SECONDS: z
+      .string()
+      .default('300') // 5 minutes
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(86400)),
     // Webhook payload size cap in bytes
     WEBHOOK_PAYLOAD_SIZE_CAP: z
       .string()
@@ -448,6 +460,12 @@ export interface Config {
   trustScoreCache: {
     ttl: number
   }
+  bondCache: {
+    ttl: number
+  }
+  attestationCache: {
+    ttl: number
+  }
   port: number
   nodeEnv: 'development' | 'production' | 'test'
   logLevel: 'debug' | 'info' | 'warn' | 'error'
@@ -759,6 +777,12 @@ function mapEnvToConfig(env: Env): Config {
     },
     trustScoreCache: {
       ttl: env.TRUST_SCORE_CACHE_TTL,
+    },
+    bondCache: {
+      ttl: env.BOND_CACHE_TTL_SECONDS,
+    },
+    attestationCache: {
+      ttl: env.ATTESTATION_CACHE_TTL_SECONDS,
     },
     sorobanCircuitBreaker: {
       failureThreshold: env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
