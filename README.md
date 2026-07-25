@@ -303,6 +303,8 @@ The backend implements a comprehensive timeout and retry strategy for all extern
 - Environment variable tuning guide
 - Operational runbook (symptom → diagnosis → tuning)
 
+For diagnosing a backed-up outbox event queue specifically, see **[docs/RUNBOOK_QUEUE_LAG.md](docs/RUNBOOK_QUEUE_LAG.md)**.
+
 ## Horizon Listener
 
 The service includes a Horizon withdrawal events listener that:

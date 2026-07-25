@@ -7,3 +7,4 @@ This directory contains additional documentation for the Credence Backend.
 - **[Replay‑Safe Handlers & Side‑Effects](REPLAY_SAFE_HANDLERS.md)** – ensuring side‑effects are safe during retries.
 - **[Idempotency Guard](IDEMPOTENCY_GUARD.md)** – replay protection for HTTP requests.
 - **[Incoming Webhook Security & Posture](WEBHOOK_RECEIVE.md)** – HMAC-SHA256 signature verification, 5-minute replay window, and CIDR allowed origins.
+- **[Runbook: Outbox Queue Lag / Backlog](RUNBOOK_QUEUE_LAG.md)** – diagnosing and draining a backed-up outbox queue when it breaches the lag SLO.
