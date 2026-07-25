@@ -42,6 +42,16 @@ Accepted in any case (EIP-55 checksummed or all lower-case).
 
 ---
 
+## Latency Budget
+
+Clients can provide an `x-request-latency-budget-ms` header in their requests. The server will echo this header back in its response. This allows clients to compare their view of the latency budget to the server-reported timing.
+
+```
+x-request-latency-budget-ms: 1500
+```
+
+---
+
 ## Endpoints
 
 ### `GET /api/health`
