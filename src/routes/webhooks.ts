@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express'
-import { AuthenticatedRequest, requireUserAuth, requireAdminRole } from '../middleware/auth.js'
+import { AuthenticatedRequest, requireUserAuth, UserRole } from '../middleware/auth.js'
 import { WebhookRotationService, WebhookNotFoundError } from '../services/webhooks/rotationService.js'
 import type { WebhookStore } from '../services/webhooks/types.js'
-import type { AuditLogService } from '../services/audit/index.js'
+import { AuditAction, type AuditLogService } from '../services/audit/index.js'
 import { getTenantId, setTenantId } from '../utils/tenantContext.js'
 
 /**
@@ -39,7 +39,6 @@ export function createWebhookRouter(store: WebhookStore, audit: AuditLogService)
   router.post(
     '/:webhookId/rotate-secret',
     requireUserAuth,
-    requireAdminRole,
     async (req: Request, res: Response): Promise<void> => {
       // Set tenant context from request header
       const tenantId = req.headers['x-tenant-id'] as string || 'default-tenant'
@@ -53,6 +52,26 @@ export function createWebhookRouter(store: WebhookStore, audit: AuditLogService)
         const authReq = req as AuthenticatedRequest
         const actor = authReq.user!
         const ipAddress = req.ip ?? req.socket.remoteAddress
+
+        if (actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUPER_ADMIN && (actor.role as string) !== 'super-admin') {
+          void audit.logAction({
+            tenantId: actor.tenantId || tenantId,
+            actorId: actor.id,
+            actorEmail: actor.email,
+            action: AuditAction.ROTATE_WEBHOOK_SECRET,
+            resourceType: 'webhook',
+            resourceId: webhookId,
+            details: { webhookId, reason: 'insufficient_permissions' },
+            status: 'failure',
+            errorMessage: 'Admin role required',
+            ipAddress,
+          })
+          res.status(403).json({
+            error: 'Forbidden',
+            message: 'Admin role required',
+          })
+          return
+        }
 
         const result = await rotationService.rotateSecret(
           webhookId,
