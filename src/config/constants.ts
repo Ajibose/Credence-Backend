@@ -10,8 +10,6 @@ export const DEFAULT_TOP_TALKERS_LIMIT = 10
 export const MAX_TOP_TALKERS_LIMIT = 100
 
 /** Default time window in minutes for top talkers request aggregation (1 hour). */
- feat/request-attempt-header
-export const DEFAULT_TOP_TALKERS_WINDOW_MINUTES = 60
 export const DEFAULT_TOP_TALKERS_WINDOW_MINUTES = 60
 
 /** Header name used to trigger graceful degradation / read-only mode */
@@ -38,4 +36,3 @@ export const PG_STAT_ACTIVITY_SNAPSHOT_RETENTION_HOURS = 24
  * thundering herd against a just-recovered provider.
  */
 export const PROVIDER_RECOVERY_BUFFER_MS = 5_000
- main
