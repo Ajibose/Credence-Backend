@@ -243,6 +243,44 @@ This action is logged with:
 
 ---
 
+### POST /api/admin/replay-event
+
+Replay a single failed inbound event by id (passed in request body). Audit-logged.
+
+**Scope**: `admin:write`
+
+**Request body**:
+
+```json
+{
+  "id": "evt-uuid"
+}
+```
+
+**Example Request**:
+
+```bash
+curl -X POST http://localhost:3000/api/admin/replay-event \
+  -H "Authorization: Bearer <ADMIN_API_KEY_RAW>" \
+  -H "Content-Type: application/json" \
+  -d '{"id":"evt-uuid"}'
+```
+
+**Example Response (200 OK)**
+
+```json
+{
+  "success": true,
+  "message": "Event successfully replayed"
+}
+```
+
+**Permissions**: Requires `admin` role.
+
+**Errors**: Returns 400 for validation errors (missing id, invalid fields), 404 if the event does not exist, 500 if replay fails.
+
+---
+
 ### Replay Horizon Ledger Range
 
 **POST** `/api/admin/events/replay-range`
@@ -461,6 +499,7 @@ Each entry contains immutable `who/what/when/resource` fields:
 | `REVOKE_API_KEY` | API key revoked |
 | `CREATE_API_KEY` | New API key created |
 | `DELETE_USER` | User deleted |
+| `RELOAD_CONFIG` | Live configuration reloaded |
 
 ---
 
@@ -566,14 +605,95 @@ curl -X POST "${BASE_URL}/keys/revoke" \
   -H "Content-Type: application/json" \
   -d '{"userId": "verifier-user-1", "apiKey": "<VERIFIER_API_KEY_RAW>"}'
 
-# 4. Review audit logs
-curl -X GET "${BASE_URL}/audit-logs?adminId=admin-user-1" \
-  -H "Authorization: ${ADMIN_TOKEN}"
+### Reload Config
+
+**POST** `/api/admin/reload-config`
+
+Trigger a live reload of the validated config. This endpoint re-reads the secrets from the vault (`.env`), validates them, and applies them to the current runtime configuration without restarting the application.
+
+*Note: The older endpoint `POST /api/admin/refresh-secrets` is deprecated and acts as an alias to `/reload-config` for backwards compatibility.*
+
+#### Example Request
+
+```bash
+curl -X POST 'http://localhost:3000/api/admin/reload-config' \
+  -H "Authorization: Bearer <ADMIN_API_KEY_RAW>"
+```
+
+#### Example Response (200 OK)
+
+```json
+{
+  "success": true
+}
+```
+
+#### Error Responses
+
+- **400 Bad Request** - Returns a `ConfigValidationError` if the vault secrets fail schema validation. The current config remains untouched.
+- **401 Unauthorized** - Missing or invalid Bearer token.
+- **403 Forbidden** - User does not have the admin role.
+
+#### Audit Logging
+
+This action is logged with:
+- **Action**: `RELOAD_CONFIG`
+- **Details**: `{ "action": "reload-config" }`
+
+---
+
+### Migrations Dry-Run
+
+**GET / POST** `/api/admin/migrations/dry-run`
+
+Previews the SQL statements that would be executed by the next pending database migration (`up`) without running them against the database. Useful for operators and engineers reviewing pending schema changes.
+
+#### Parameters (Query for GET, JSON Body for POST)
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `count` | number | No | Number of pending migrations to preview |
+| `file` | string | No | Specific migration filename to preview |
+| `skipPreflight` | boolean / string (`"true"`/`"false"`) | No | Skip preflight guardrail checks |
+
+#### Example Request (GET)
+
+```bash
+curl -X GET 'http://localhost:3000/api/admin/migrations/dry-run?count=1' \
+  -H "Authorization: Bearer <ADMIN_API_KEY_RAW>"
+```
+
+#### Example Request (POST)
+
+```bash
+curl -X POST 'http://localhost:3000/api/admin/migrations/dry-run' \
+  -H "Authorization: Bearer <ADMIN_API_KEY_RAW>" \
+  -H "Content-Type: application/json" \
+  -d '{"count": 1, "skipPreflight": true}'
+```
+
+#### Example Response (200 OK)
+
+```json
+{
+  "success": true,
+  "data": {
+    "applied": [
+      "001_initial_schema.ts"
+    ],
+    "sql": [
+      "CREATE TABLE IF NOT EXISTS identities (...);"
+    ],
+    "sqlText": "CREATE TABLE IF NOT EXISTS identities (...);",
+    "count": 1
+  }
+}
 ```
 
 ---
 
 ## Troubleshooting
+
 
 ### Common Issues
 

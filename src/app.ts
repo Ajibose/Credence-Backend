@@ -1,6 +1,7 @@
 import express from "express";
 import { createJwksRouter } from "./routes/jwks.js";
 import { createHealthRouter } from "./routes/health.js";
+import { createVersionRouter } from "./routes/version.js";
 import { createDefaultProbes } from "./services/health/probes.js";
 import { isReady } from "./lifecycle.js";
 import trustRouter from "./routes/trust.js";
@@ -23,18 +24,79 @@ import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
 import { createCostMeterMiddleware } from "./middleware/costMeter.js";
 import { validateConfig } from "./config/index.js";
 import { createAttestationRouter } from "./routes/attestations.js";
-import { tenantContextMiddleware } from './middleware/tenantContext.js'
+import { tenantContextMiddleware } from "./middleware/tenantContext.js";
+import { gracefulDegradeMiddleware } from "./middleware/gracefulDegrade.js";
 import {
   compressionMiddleware,
   compressionMetricsMiddleware,
 } from "./middleware/compression.js";
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
+import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
+ feat/request-attempt-header
+import {
+  bondPathParamsSchema,
+  attestationsPathParamsSchema,
+  createAttestationBodySchema,
+} from './schemas/index.js'
+import { compressionMiddleware, compressionMetricsMiddleware } from './middleware/compression.js'
+import { metricsMiddleware, register } from './middleware/metrics.js'
+import { createMembersRouter } from './routes/admin/member.ts'
+import { clientVersionEchoMiddleware } from './middleware/clientVersionEcho.js'
+import { requestAttemptEchoMiddleware } from './middleware/requestAttemptEcho.js'
+
+const app = express()
+
+// Request context and correlation IDs
+app.use(requestIdMiddleware)
+
+// Debugging echo
+app.use(clientVersionEchoMiddleware)
+app.use(requestAttemptEchoMiddleware)
+
+// Metrics endpoint for Prometheus
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', register.contentType)
+  res.end(await register.metrics())
+})
+
+app.use(metricsMiddleware)
+app.use(compressionMetricsMiddleware)
+app.use(compressionMiddleware)
+app.use(express.json())
+
+// JWT public key set — unauthenticated, per RFC 8414 / OIDC Discovery conventions
+app.use('/.well-known/jwks.json', createJwksRouter())
+
+// Health – full readiness check with per-dependency status
+const healthProbes = createDefaultProbes()
+
+// If Redis is configured, wire up a client for the worker-health endpoint
+let redisClient: import('./cache/redis.js').RedisClient | undefined
+if (process.env.REDIS_URL) {
+  try {
+    const conn = RedisConnection.getInstance()
+    // Best-effort connect — the endpoint degrades gracefully if Redis is down
+    conn.connect().catch(() => {})
+    redisClient = conn.getClient()
+  } catch {
+    // Redis may not be reachable at startup; worker-health will degrade gracefully
+  }
+}
+
+app.use('/api/health', createHealthRouter({ ...healthProbes, redisClient }))
+ main
+
+// Add missing imports used in the router
 import {
   jsonBodyParser,
   requestSizeLimitErrorHandler,
 } from "./middleware/requestSizeLimit.js";
 import { createWsSubscriptionServer } from "./routes/ws.js";
+import reportRouter from "./routes/report.js";
+import { idempotencyMiddleware } from "./middleware/idempotency.js";
+import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
+import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
 
 const app = express();
 
@@ -64,12 +126,20 @@ try {
 
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig);
 
+let globalTimeoutMs: number;
+try {
+  globalTimeoutMs = validateConfig(process.env).timeouts.global;
+} catch {
+  globalTimeoutMs = 30000; // 30s default
+}
+const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
+
 app.use(requestIdMiddleware);
-app.use(latencyBudgetMiddleware);
+app.use(timeoutBudgetMiddleware);
 
 const metricsCidrs = process.env.METRICS_ALLOWED_CIDRS
-  ?.split(',')
-  .map(s => s.trim())
+  ?.split(",")
+  .map((s) => s.trim())
   .filter(Boolean);
 
 if (metricsCidrs?.length) {
@@ -90,23 +160,42 @@ app.use(compressionMiddleware);
 app.use(jsonBodyParser);
 app.use(requestSizeLimitErrorHandler);
 app.use(tenantContextMiddleware);
+app.use(gracefulDegradeMiddleware);
 
 app.use("/.well-known/jwks.json", createJwksRouter());
 
 const healthProbes = createDefaultProbes();
 app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
+app.use("/api/version", createVersionRouter());
 
 app.use("/api", rateLimitMiddleware);
 
+// ── Idempotency middleware ────────────────────────────────────────────────────
+// Must run after body parsing (jsonBodyParser) and before route handlers so the
+// full request body is available when computing the payload hash.
 try {
-  const config = validateConfig(process.env)
+  const idempotencyConfig = validateConfig(process.env).idempotency;
+  const idempotencyRepo = new IdempotencyRepository(pool);
+  app.use(
+    "/api",
+    idempotencyMiddleware(idempotencyRepo, {
+      expiresInSeconds: idempotencyConfig.ttlSeconds,
+    }),
+  );
+} catch {
+  // If config is invalid, idempotency middleware is safely skipped
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
+try {
+  const config = validateConfig(process.env);
   const costMeterConfig = {
     costWeights: config.endpointCostWeights,
     defaultMonthlyCredits: config.credits.defaultMonthly,
     defaultLowCreditThreshold: config.credits.defaultLowCreditThreshold,
-  }
-  const costMeterMiddleware = createCostMeterMiddleware(costMeterConfig, () => pool)
-  app.use("/api", costMeterMiddleware)
+  };
+  const costMeterMiddleware = createCostMeterMiddleware(costMeterConfig, () => pool);
+  app.use("/api", costMeterMiddleware);
 } catch {
   // If config is invalid, cost metering is safely skipped
 }
@@ -122,6 +211,16 @@ app.use("/api/bulk", bulkRouter);
 
 app.use("/api/imports", createImportsRouter());
 
+// Defence-in-depth open-redirect guard: applied once here (rather than in
+// each admin route handler) so it covers every current and future 302 under
+// /api/admin/*, including the webhooks and feature-flags sub-routers mounted
+// below. See docs/SECURITY.md#open-redirect-protection.
+const adminRedirectAllowedHosts = process.env.ADMIN_REDIRECT_ALLOWED_HOSTS
+  ?.split(",")
+  .map((s) => s.trim())
+  .filter(Boolean) ?? [];
+
+app.use("/api/admin", createSafeRedirectMiddleware({ allowedHosts: adminRedirectAllowedHosts }));
 app.use("/api/admin", createAdminRouter());
 app.use("/api/admin/webhooks", createWebhookAdminRouter());
 app.use("/api/admin/feature-flags", createFeatureFlagAdminRouter());
@@ -137,6 +236,8 @@ const analyticsService = process.env.DATABASE_URL
 app.use("/api/analytics", createAnalyticsRouter(analyticsService));
 
 app.use("/api/payouts", createPayoutsRouter());
+
+app.use("/api/reports", reportRouter);
 
 app.use(errorHandler);
 

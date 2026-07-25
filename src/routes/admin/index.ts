@@ -8,6 +8,7 @@ import {
 import erasureProofRouter from './erasureProof.js'
 import auditChainStatusRouter from './auditChainStatus.js'
 import settlementReconciliationRouter from './settlementReconciliation.js'
+import migrationsRouter from './migrations.js'
 import {
   buildPaginationMeta,
   parsePaginationParams,
@@ -30,7 +31,18 @@ import { IdentityRepository } from "../../db/repositories/identityRepository.js"
 import { BondsRepository } from "../../db/repositories/bondsRepository.js";
 import { pool } from "../../db/pool.js";
 import { validate } from '../../middleware/validate.js'
+import {
+  assignRoleBodySchema,
+  revokeApiKeyBodySchema,
+  issueImpersonationTokenBodySchema,
+  replayEventBodySchema,
+} from '../../schemas/admin.js'
+import type { ReplayEventBody } from '../../schemas/admin.js'
 import { z } from 'zod'
+import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
+import { validateConfig, ConfigValidationError } from "../../config/index.js";
+import fs from "fs";
+import dotenv from "dotenv";
 
 /**
  * Create the admin router with role and user management endpoints
@@ -49,6 +61,8 @@ export function createAdminRouter(): Router {
 
   // Register handlers
   registerAllReplayHandlers(replayService, identityRepo, bondsRepo);
+
+  router.use(preventAdminCrawling);
 
   /**
    * GET /api/admin/users
@@ -95,7 +109,7 @@ export function createAdminRouter(): Router {
   /**
    * POST /api/admin/roles/assign
    */
-  router.post('/roles/assign', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/roles/assign', requireUserAuth, requireAdminRole, validate({ body: assignRoleBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
@@ -119,10 +133,73 @@ export function createAdminRouter(): Router {
     }
   });
 
+  const handleReloadConfig = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authReq = req as AuthenticatedRequest
+      const user = authReq.user!
+      const requestId = (req as any).requestId
+
+      const envPath = process.cwd() + '/.env';
+      let parsed = {};
+      if (fs.existsSync(envPath)) {
+        parsed = dotenv.parse(fs.readFileSync(envPath));
+      }
+      
+      const candidateEnv = { ...process.env, ...parsed };
+      
+      try {
+        validateConfig(candidateEnv as any);
+      } catch (err: any) {
+        if (err instanceof ConfigValidationError) {
+          res.status(400).json({ error: 'ConfigValidationError', message: 'Vault secrets validation failed', issues: err.issues });
+          return;
+        }
+        throw err;
+      }
+      
+      // Apply the validated config to process.env
+      for (const [k, v] of Object.entries(parsed)) {
+        process.env[k] = v as string;
+      }
+
+      // Audit log the action
+      void auditLogService.logAction(
+        user.tenantId,
+        user.id,
+        user.email,
+        AuditAction.RELOAD_CONFIG,
+        'system',
+        undefined,
+        { action: 'reload-config' },
+        undefined,
+        undefined,
+        req.ip,
+        requestId
+      );
+
+      res.status(200).json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * POST /api/admin/reload-config
+   * Triggering a live reload of the validated config; audit-logged.
+   */
+  router.post('/reload-config', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/refresh-secrets
+   * Reloads secrets from the vault (.env) without a restart.
+   * @deprecated Use /reload-config instead.
+   */
+  router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
+
   /**
    * POST /api/admin/keys/revoke
    */
-  router.post('/keys/revoke', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/keys/revoke', requireUserAuth, requireAdminRole, validate({ body: revokeApiKeyBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
@@ -150,7 +227,7 @@ export function createAdminRouter(): Router {
    *
    * Issue a short-lived impersonation token for support/debug purposes.
    */
-  router.post('/impersonate', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/impersonate', requireUserAuth, requireAdminRole, validate({ body: issueImpersonationTokenBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
@@ -433,6 +510,40 @@ export function createAdminRouter(): Router {
   )
 
   /**
+   * POST /api/admin/replay-event
+   *
+   * Replay a specific failed inbound event by id (passed in body).
+   * Audit-logged via ReplayService.replayEvent.
+   */
+  router.post(
+    '/replay-event',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: replayEventBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { id } = req.body as ReplayEventBody
+
+        const result = await replayService.replayEvent(
+          id,
+          admin.id,
+          admin.email,
+          admin.tenantId,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json(result)
+      } catch (error: any) {
+        next(error)
+      }
+    }
+  )
+
+  /**
    * POST /api/admin/replay
    * Replays a request by requestId against captured snapshot and returns diff.
    */
@@ -497,6 +608,9 @@ export function createAdminRouter(): Router {
 
   // Mount settlement reconciliation report (read-only)
   router.use('/settlement', settlementReconciliationRouter)
+
+  // Mount migrations sub-router (dry-run)
+  router.use('/migrations', migrationsRouter)
 
   return router
 }

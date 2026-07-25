@@ -1,30 +1,25 @@
-# feat(shutdown): drain in-flight requests, close DB pools, and exit cleanly on SIGTERM
+# Pull Request Description
 
-## Description
+## Overview
+This PR implements request-scoped logging context (`req.log`) on Express request objects. Route handlers and middlewares can now call `req.log.info()`, `req.log.warn()`, `req.log.error()`, or `req.log.debug()` to emit structured logs with the correct request metadata (`requestId`, `correlationId`, `route`, `tenant`, and `actor`) automatically populated. This resolves workarounds where context was lost during event loop execution.
 
-This PR fixes a bug where `SIGTERM` and `SIGINT` signals bypassed the configured `GracefulShutdownManager` in production (due to duplicate signal handlers in `src/index.ts` that immediately called `process.exit(0)` when the HTTP server closed, bypassing the closing of DB pools, Redis connections, and background schedulers).
+## Key Additions & Changes
+1. **Request Logger Types & Helpers** (`src/types/express.d.ts`, `src/utils/logger.ts`):
+   - Augment Express `Request` type definition to expose the `log: RequestLogger` property.
+   - Implement `createRequestLogger` in `logger.ts` to format logs with a custom/explicit context `Map`.
+   - Update `logger` methods (`info`, `warn`, `error`, `debug`) to accept `redactionContext` parameters.
 
-With this fix, signals are correctly routed to the `GracefulShutdownManager`, which performs a clean, ordered graceful shutdown sequence before exiting.
+2. **Middleware Attachment** (`src/middleware/requestId.ts`):
+   - Instantiate and bind `req.log` to a Proxy wrapper over the request tracing context.
+   - The Proxy implements dynamic fallback lookup for `tenant` and `actor` IDs from the request header/user properties, allowing downstream auth middlewares to cleanly update the logging context.
 
-Closes #<this-issue>
+3. **ESLint Plugin Update** (`src/observability/eslint-plugin-logger-schema.ts`):
+   - Modified the custom ESLint rules to parse and validate both `logger.x()` and `req.log.x()` expressions. This ensures that `req.log` calls conform to the allowlist PII schema validations.
 
-## Changes
+4. **Documentation**:
+   - Updated `README.md`, `docs/LOGGING.md`, and `docs/observability.md` to document the new `req.log` logger, including example usages.
 
-- **`src/index.ts`**: Removed duplicate local `shutdown` handler and its signal registrations to ensure `GracefulShutdownManager` manages the shutdown process.
-- **`src/__tests__/gracefulShutdown.test.ts`**: Added a new sequence verification test to ensure that the server closing/draining, database pools closing, and process exiting occur in the correct order.
-- **`README.md`**: Documented the graceful shutdown behavior.
-- **`docs/graceful-shutdown.md`**: Updated signal handling architecture notes.
+5. **Tests**:
+   - Added `src/middleware/__tests__/requestLogger.test.ts` to test request context binding, dynamic updating of tenant/actor context, and deferred logging outside request lifecycles.
 
-## Commits
-
-1. `fix(shutdown): remove redundant signal handlers in index.ts`
-2. `test(shutdown): add test to verify shutdown sequence order`
-3. `docs(shutdown): document production graceful shutdown and signal handling`
-
-## Checklist
-
-- [x] The change matches the summary above.
-- [x] No regression in the existing test suite.
-- [x] The change is documented where it is observable (README, docs/).
-- [x] Lint, type-check, and tests all pass locally.
-- [x] PR description references this issue with `Closes #<this-issue>`.
+Closes #866

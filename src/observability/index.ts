@@ -37,6 +37,8 @@ export {
   setOutboxPendingGauge,
   incrementOutboxLeaseRenew,
   incrementOutboxQuarantine,
+  incrementOutboxLeaderAcquired,
+  incrementOutboxLeaderLost,
 } from './outboxMetrics.js'
 
 export {
@@ -44,5 +46,7 @@ export {
   syntheticProbeFailureTotal,
   dbTxnDurationSeconds,
   dbTxnSavepoints,
+  dbSlowQueriesTotal,
+  dbSlowQueryDurationSeconds,
   registerSyntheticMetrics,
 } from './customMetrics.js'

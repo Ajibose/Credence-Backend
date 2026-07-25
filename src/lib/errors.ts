@@ -91,6 +91,12 @@ export class AppError extends Error {
   }
 }
 
+export class CrawlerBlockedError extends AppError {
+  constructor(message: string = getErrorCatalogEntry(ErrorCodeRegistry.CRAWLER_BLOCKED).defaultMessage) {
+    super(message, ErrorCodeRegistry.CRAWLER_BLOCKED)
+  }
+}
+
 /**
  * Specific error for validation failures (e.g. Zod).
  */
@@ -100,6 +106,19 @@ export class ValidationError extends AppError {
     details?: unknown
   ) {
     super(message, ErrorCodeRegistry.VALIDATION_FAILED, undefined, details)
+  }
+}
+
+/**
+ * Specific error for redirect targets that fail open-redirect validation
+ * (protocol-relative URLs, backslash tricks, or hosts outside the allowlist).
+ */
+export class UnsafeRedirectError extends AppError {
+  constructor(
+    message: string = getErrorCatalogEntry(ErrorCodeRegistry.UNSAFE_REDIRECT_TARGET).defaultMessage,
+    details?: unknown
+  ) {
+    super(message, ErrorCodeRegistry.UNSAFE_REDIRECT_TARGET, undefined, details)
   }
 }
 

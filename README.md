@@ -117,7 +117,7 @@ docker compose exec postgres psql -U credence
 
 ### Environment variables
 
-All configuration is driven by environment variables. Copy `.env.example` to `.env` and adjust as needed. Key variables:
+All configuration is driven by environment variables. Copy `.env.example` to `.env` and adjust as needed. The full reference — every required and optional variable with defaults, validation bounds, and common pitfalls — is in **[docs/CONFIG_TEMPLATE.md](docs/CONFIG_TEMPLATE.md)**. Key variables:
 
 | Variable            | Default    | Description               |
 | ------------------- | ---------- | ------------------------- |
@@ -161,11 +161,17 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 | POST   | `/api/attestations`          | Create attestation                          |
 | GET    | `/api/verification/:address` | Verification proof (stub)                   |
 | GET    | `/api/analytics/summary`     | Aggregated analytics from materialized view |
+| GET    | `/api/reports/top-talkers`   | Top N tenants by request count in last hour |
+
 
 Invalid input returns **400** with `{ "error": "Validation failed", "details": [{ "path", "message" }] }`. See [docs/VALIDATION.md](docs/VALIDATION.md).
 
+List endpoints support offset/page and cursor-based pagination. See **[docs/PAGINATION_CONTRACT.md](docs/PAGINATION_CONTRACT.md)** for cursor format, page-size limits, and ordering guarantees.
+
 Full request/response documentation, cURL examples, and import instructions:
 **[docs/api.md](docs/api.md)**
+
+**API versioning & stability policy:** **[docs/API_STABILITY.md](docs/API_STABILITY.md)**
 
 ### OpenAPI spec
 
@@ -174,6 +180,8 @@ docs/openapi.yaml
 ```
 
 Render with `npx @redocly/cli preview-docs docs/openapi.yaml` or paste into [editor.swagger.io](https://editor.swagger.io).
+
+For instructions on how to regenerate the spec after modifying schemas or routes, see **[docs/OPENAPI.md](docs/OPENAPI.md)**.
 
 ### Postman / Insomnia collection
 
@@ -240,7 +248,11 @@ We rely on structured logging to maintain a consistent schema and protect PII. S
 
 ## Monitoring
 
-Comprehensive monitoring with Prometheus and Grafana is available. See **[docs/monitoring.md](docs/monitoring.md)** for:
+Comprehensive monitoring with Prometheus and Grafana is available.
+
+- **[docs/OBSERVABILITY.md](docs/OBSERVABILITY.md)** — operator's index of every Prometheus metric, the Grafana dashboard panel for each, the PromQL behind every alert, and runnable triage queries. **Start here if you are operating the service.**
+- **[docs/monitoring.md](docs/monitoring.md)** — full setup, instrumentation, and deployment guide for Prometheus + Grafana.
+- **[docs/SLA.md](docs/SLA.md)** — uptime commitments and per-endpoint SLO/SLI targets for downstream integrators.
 
 - Metrics instrumentation guide
 - Grafana dashboard setup
@@ -270,11 +282,23 @@ The Grafana dashboard includes:
 - Infrastructure health (DB, Redis status and check duration)
 - Business metrics (reputation calculations, identity verifications, bulk operations)
 
+## Deployment: Cutover, Health Gates & Rollback
+
+The service deploys to Kubernetes as a zero-downtime rolling update (`k8s/deployment.yaml`). See:
+
+- **[docs/k8s.md](docs/k8s.md)** — manifests, ConfigMap/Secret keys, and the first-time `kubectl apply -k k8s/` quick start.
+- **[docs/deployment-cutover.md](docs/deployment-cutover.md)** — the cutover sequence, exactly what the readiness/liveness/startup probes check (and their timing), and how to detect a bad rollout and trigger `kubectl rollout undo`.
+
+## Backup Strategy (WAL + PITR)
+
+Historical performance benchmarks, latency distributions, and throughput figures across major releases are documented in **[docs/PERF_BASELINE.md](docs/PERF_BASELINE.md)**. Use this document to eyeball performance regressions during pre-release testing.
+
+
 ## Resilience: Timeouts & Retries
 
 The backend implements a comprehensive timeout and retry strategy for all external service dependencies. Webhook deliveries are now idempotent by default: duplicate retries for the same subscriber/event pair are ignored automatically using a persistent reservation keyed by the subscriber ID and event ID. See **[docs/timeouts-and-retries.md](docs/timeouts-and-retries.md)** for:
 
-- Timeout budgets by service type (database, cache, HTTP, Soroban, webhooks)
+- Global request budgets and timeout budgets by service type (database, cache, HTTP, Soroban, webhooks)
 - Default and per-provider retry policies
 - Downstream error classification (`NETWORK_ERROR` vs `TIMEOUT_ERROR` vs `RPC_ERROR`) with typed surfacing
 - Environment variable tuning guide
@@ -359,6 +383,11 @@ try {
 | `CORS_ORIGIN`                 | No       | `*`           | Allowed CORS origin                                    |
 | `ANALYTICS_REFRESH_CRON`      | No       | `*/5 * * * *` | Refresh cadence for analytics materialized view        |
 | `ANALYTICS_STALENESS_SECONDS` | No       | `300`         | Max acceptable analytics staleness before marked stale |
+| `DB_POOL_IDLE_TIMEOUT_MS`     | No       | `300000`      | Milliseconds a pooled connection may stay idle before being closed. Kills idle connections to keep pool counts predictable. |
+| `DB_POOL_MAX`                 | No       | `20`          | Maximum connections in the primary / replica pools     |
+| `DB_WORKER_POOL_MAX`          | No       | `5`           | Maximum connections in the background-worker pool      |
+| `DB_POOL_CONNECTION_TIMEOUT_MS` | No     | `5000`        | Milliseconds to wait for an available connection       |
+| `DB_STATEMENT_TIMEOUT_MS`     | No       | `30000`       | Per-statement timeout; kills runaway queries           |
 
 ## Analytics materialized views
 
@@ -424,7 +453,10 @@ npm run migrate:dev
 
 # Check which migrations would run (dry run)
 npm run migrate:dev -- --dry-run
+# Preview pending SQL statements via Admin API
+curl -X GET http://localhost:3000/api/admin/migrations/dry-run -H "Authorization: Bearer <ADMIN_API_KEY>"
 ```
+
 
 **Production/CI (requires build first):**
 
@@ -535,12 +567,37 @@ On `SIGTERM` or `SIGINT`, the Credence Backend API executes an ordered graceful 
 
 The grace period is configurable via `SHUTDOWN_GRACE_PERIOD_MS` (default: 30,000 ms). For more details, see **[docs/graceful-shutdown.md](docs/graceful-shutdown.md)**.
 
+## Graceful Degradation
+
+During maintenance or database upgrades, operators can gracefully degrade the service to a read-only state. This is done on a per-request basis by passing the `X-Read-Only` header set to `true` or `1`.
+
+When active, any state-mutating requests (`POST`, `PUT`, `PATCH`, `DELETE`) are cleanly rejected with a `503 Service Unavailable` response, while read-only requests (`GET`, `HEAD`, `OPTIONS`) are permitted to proceed.
+
+For more details, see **[docs/graceful-degrade.md](docs/graceful-degrade.md)**.
+
+## Replay-Safe Handlers & Side-Effects
+
+To prevent duplicate side-effects (e.g., duplicate webhooks or notifications) when failed inbound events are replayed or retried, the system implements a context-aware replay-safe handler wrapper and a side-effect execution helper.
+
+For details on configuration and usage, see **[docs/REPLAY_SAFE_HANDLERS.md](docs/REPLAY_SAFE_HANDLERS.md)**.
+- [Replay & Inspection Guide (Operator)](docs/replay_and_inspection.md)
+
+## Observability & Logging
+
+For observability, request tracing, metrics, and structured logging guidelines:
+- **Structured Logging Policy**: See [docs/LOGGING.md](docs/LOGGING.md) for logs, formats, and conventions.
+- **Request Tracing & Metrics**: See [docs/observability.md](docs/observability.md) for request tracing, PII redaction rules, and the `req.log` request-scoped logger.
+
 ## Security
 
 For security policies, reporting, and architecture documentation:
 - **Security Policy & Vulnerability Reporting**: See [SECURITY.md](SECURITY.md) for details on supported versions and how to report a vulnerability.
 - **Security Architecture**: See [docs/security.md](docs/security.md) for details on the API key scope model, encrypted evidence storage, rate limiting, and dependency scanning SLAs.
+- **Canonical JWT Claims Reference**: See [docs/JWT_CLAIMS.md](docs/JWT_CLAIMS.md) for standard, custom, and impersonation JWT claims, headers, and consumer middleware.
+- **Rate Limiting Support & Operations**: See [docs/rate-limiting.md](docs/rate-limiting.md) for details on default tier rate limits, environment configuration, troubleshooting, and support FAQs.
 - **Evidence Upload Security**: See [docs/evidence-upload-security.md](docs/evidence-upload-security.md) for file upload security configurations, size/count limits, and magic number validations.
+- **Secret-Rotation Posture**: See [docs/SECRETS.md](docs/SECRETS.md) for where secrets live, rotation cadence, and blast radius of each credential type.
+- **Incoming Webhook Security & Posture**: See [docs/WEBHOOK_RECEIVE.md](docs/WEBHOOK_RECEIVE.md) for signature verification, 5-minute replay window tolerance, and CIDR allowed origins.
 
 ## Testing
 
@@ -555,3 +612,11 @@ pnpm run coverage:audit    # audit-sensitive coverage (disputes, governance, evi
 pnpm run test:chaos        # chaos suite (requires docker-compose.test.yml up)
 ```
 
+
+## Rate Limiting
+
+[#rate-limiting](#rate-limiting)
+
+API requests are limited per-tier using a token-bucket algorithm. See
+**[docs/RATE_LIMITING_DESIGN.md](./docs/RATE_LIMITING_DESIGN.md)** for
+tier sizes, burst allowance, and reset windows.

@@ -40,6 +40,9 @@ export enum AuditAction {
   REPLAY_REQUEST = 'REPLAY_REQUEST',
   LIST_OUTBOX_QUARANTINE = 'LIST_OUTBOX_QUARANTINE',
   OUTBOX_REINJECT = 'OUTBOX_REINJECT',
+  SET_RATE_LIMIT_OVERRIDE = 'SET_RATE_LIMIT_OVERRIDE',
+  REMOVE_RATE_LIMIT_OVERRIDE = 'REMOVE_RATE_LIMIT_OVERRIDE',
+  UPDATE_SETTINGS = 'UPDATE_SETTINGS',
 }
 
 export type AuditStatus = 'success' | 'failure'
@@ -141,3 +144,25 @@ export interface ChainViolation {
   actualRowHash: string | null
   type: 'prev_hash_mismatch' | 'row_hash_mismatch' | 'missing_row' | 'deleted_row'
 }
+
+/**
+ * Single tenant request count entry in top talkers report
+ */
+export interface TopTalkerEntry {
+  tenantId: string
+  requestCount: number
+  percentage: number
+  lastRequestAt?: string
+}
+
+/**
+ * Top talkers report aggregated over a time window (default 1 hour)
+ */
+export interface TopTalkersReport {
+  windowStart: string
+  windowEnd: string
+  windowMinutes: number
+  totalRequests: number
+  topTalkers: TopTalkerEntry[]
+}
+

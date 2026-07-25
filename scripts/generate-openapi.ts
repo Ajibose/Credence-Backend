@@ -50,14 +50,15 @@ registry.registerPath({
 
 registry.registerPath({
   method: 'get',
-  path: '/api/health/version',
-  summary: 'Version metadata',
-  description: 'Returns build metadata (git sha, build ts, node version).',
+  path: '/api/version',
+  summary: 'Build version',
+  description:
+    "Returns the running build's git SHA, build timestamp, and Node version, so support/on-call can confirm which build is deployed.",
   tags: ['Health'],
   responses: {
     200: {
-      description: 'Version info',
-      content: { 'application/json': { schema: z.object({ gitSha: z.string(), buildTimestamp: z.string(), nodeVersion: z.string() }) } },
+      description: 'Version metadata',
+      content: { 'application/json': { schema: schemas.versionResponseSchema } },
     },
   },
 });
@@ -741,9 +742,107 @@ registry.registerPath({
       description: 'Missing or invalid bearer token',
       content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
     },
+  },
+});
+
+// Admin Migrations API
+registry.registerPath({
+  method: 'get',
+  path: '/api/admin/migrations/dry-run',
+  summary: 'Migration dry-run (GET)',
+  description: 'Previews the SQL statements that would be executed by the next pending database migration up.',
+  tags: ['Admin Migrations'],
+  security: bearerAuth,
+  request: {
+    query: schemas.migrationsDryRunQuerySchema,
+  },
+  responses: {
+    200: {
+      description: 'Dry run completed successfully with pending SQL statements',
+      content: { 'application/json': { schema: schemas.migrationsDryRunResponseSchema } },
+    },
+    400: {
+      description: 'Migration dry run failed',
+      content: { 'application/json': { schema: z.object({ success: z.literal(false), error: z.string(), message: z.string() }) } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+    403: {
+      description: 'Forbidden - Requires admin role',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/migrations/dry-run',
+  summary: 'Migration dry-run (POST)',
+  description: 'Previews the SQL statements that would be executed by the next pending database migration up.',
+  tags: ['Admin Migrations'],
+  security: bearerAuth,
+  request: {
+    body: {
+      required: false,
+      content: { 'application/json': { schema: schemas.migrationsDryRunBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Dry run completed successfully with pending SQL statements',
+      content: { 'application/json': { schema: schemas.migrationsDryRunResponseSchema } },
+    },
+    400: {
+      description: 'Migration dry run failed',
+      content: { 'application/json': { schema: z.object({ success: z.literal(false), error: z.string(), message: z.string() }) } },
+    },
+    401: {
+      description: 'Missing or invalid bearer token',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+    403: {
+      description: 'Forbidden - Requires admin role',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+  },
+});
+
+// Admin Replay Event API
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/replay-event',
+  summary: 'Replay a failed inbound event',
+  description:
+    'Replays a specific failed inbound event by id (passed in body) to its registered handler pipeline. Audit-logged via ReplayService.replayEvent.',
+  tags: ['Admin'],
+  security: bearerAuth,
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.replayEventBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Event replayed successfully',
+      content: {
+        'application/json': {
+          schema: z.object({
+            success: z.boolean().openapi({ example: true }),
+            message: z.string().openapi({ example: 'Event successfully replayed' }),
+          }),
+        },
+      },
+    },
+    400: {
+      description: 'Validation error',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
     404: {
-      description: 'Per-tenant rollout not found',
-      content: { 'application/json': { schema: schemas.flagErrorResponseSchema } },
+      description: 'Event not found',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
     },
   },
 });
