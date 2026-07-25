@@ -1,3 +1,6 @@
+/** Header echoed from request to response to help clients debug retry loops. */
+export const HEADER_REQUEST_ATTEMPT = 'x-request-attempt'
+
 /** Maximum tolerated age of the oldest unpublished outbox event before readiness fails. */
 export const OUTBOX_MAX_LAG_SECONDS = 60
 export const OUTBOX_MAX_LAG_MS = OUTBOX_MAX_LAG_SECONDS * 1000
@@ -7,6 +10,8 @@ export const DEFAULT_TOP_TALKERS_LIMIT = 10
 export const MAX_TOP_TALKERS_LIMIT = 100
 
 /** Default time window in minutes for top talkers request aggregation (1 hour). */
+ feat/request-attempt-header
+export const DEFAULT_TOP_TALKERS_WINDOW_MINUTES = 60
 export const DEFAULT_TOP_TALKERS_WINDOW_MINUTES = 60
 
 /** Header name used to trigger graceful degradation / read-only mode */
@@ -33,3 +38,4 @@ export const PG_STAT_ACTIVITY_SNAPSHOT_RETENTION_HOURS = 24
  * thundering herd against a just-recovered provider.
  */
 export const PROVIDER_RECOVERY_BUFFER_MS = 5_000
+ main
