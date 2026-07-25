@@ -1,5 +1,7 @@
 # Credence Backend
 
+[![codecov](https://codecov.io/gh/CredenceOrg/Credence-Backend/branch/main/graph/badge.svg)](https://codecov.io/gh/CredenceOrg/Credence-Backend)
+
 API and services for the Credence economic trust protocol. Provides health checks, trust score and bond status endpoints (to be wired to Horizon and a reputation engine).
 
 ## About
