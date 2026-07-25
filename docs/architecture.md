@@ -185,3 +185,9 @@ The application requires the following key environment variables, validated at s
 - **Bulk Verification:** Batch processing API for enterprise users.
 - **Developer SDK:** Fully typed TypeScript/JavaScript client library (Planned/WIP).
 - **Advanced Monitoring:** Unified Prometheus/Grafana dashboard for business & infra metrics.
+
+---
+
+## See Also
+
+- **[Downstream Service Map](SERVICE_MAP.md)** — every external service the backend calls, why, and how it is configured.

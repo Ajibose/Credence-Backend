@@ -12,6 +12,7 @@ This service is part of [Credence](../README.md). It supports:
 - **Configurable lock timeouts** – Prevents indefinite waits on locked rows with policy-based timeouts and automatic retry
 - **Horizon listener / identity state sync** – Reconciles DB with on-chain bond state (see [Identity state sync](#identity-state-sync)).
 - Reputation engine (off-chain score from bond data) (future)
+- **Downstream service dependencies**: see [docs/SERVICE_MAP.md](docs/SERVICE_MAP.md) for every external service the backend calls.
 
 ## Prerequisites
 
