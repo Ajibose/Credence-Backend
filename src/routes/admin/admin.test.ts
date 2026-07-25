@@ -6,7 +6,7 @@ import { idempotencyMiddleware } from '../../middleware/idempotency.js'
 import type { IdempotencyRepository, IdempotencyRecord, CreateIdempotencyInput } from '../../db/repositories/idempotencyRepository.js'
 
 // ---- Mutable mock user for RBAC tests ----
-const { mockUserRef, mockIdempotencyStore, mockAuditLogService } = vi.hoisted(() => ({
+const { mockUserRef, mockIdempotencyStore, mockAuditLogService, mockReplayService } = vi.hoisted(() => ({
   mockUserRef: { current: null as { id: string; email: string; role: string; tenantId: string } | null },
   mockIdempotencyStore: new Map<string, IdempotencyRecord>(),
   mockAuditLogService: {
@@ -15,6 +15,10 @@ const { mockUserRef, mockIdempotencyStore, mockAuditLogService } = vi.hoisted(()
     clearLogs: vi.fn().mockResolvedValue(undefined),
     getLogs: vi.fn().mockResolvedValue({ logs: [], hasNextPage: false }),
     exportLogsStream: vi.fn().mockImplementation(async function* () {}),
+  },
+  mockReplayService: {
+    listFailedEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
+    replayEvent: vi.fn().mockResolvedValue({ success: true }),
   },
 }))
 
@@ -97,8 +101,8 @@ vi.mock('../../lib/pagination.ts', () => ({
 // ---- Mock ReplayService ----
 vi.mock('../../services/replayService.js', () => ({
   ReplayService: class {
-    listFailedEvents = vi.fn().mockResolvedValue({ events: [], total: 0 })
-    replayEvent = vi.fn().mockResolvedValue({ success: true })
+    listFailedEvents = mockReplayService.listFailedEvents
+    replayEvent = mockReplayService.replayEvent
   },
 }))
 
@@ -544,6 +548,111 @@ describe('Admin Router - Strict Validation', () => {
       readFileSyncSpy.mockRestore()
       parseSpy.mockRestore()
     })
+  })
+})
+
+describe('POST /api/admin/replay-event', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUserRef.current = {
+      id: 'admin-1',
+      email: 'admin@test.com',
+      role: 'admin',
+      tenantId: 'tenant-1',
+    }
+  })
+
+  it('returns_401_when_unauthenticated', async () => {
+    mockUserRef.current = null
+
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-1' })
+
+    expect(res.status).toBe(401)
+    expect(res.body.error).toBe('Unauthorized')
+  })
+
+  it('returns_403_when_not_admin', async () => {
+    mockUserRef.current = {
+      id: 'user-1',
+      email: 'user@test.com',
+      role: 'user',
+      tenantId: 'tenant-1',
+    }
+
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-1' })
+
+    expect(res.status).toBe(403)
+    expect(res.body.error).toBe('Forbidden')
+  })
+
+  it('returns_400_when_id_missing', async () => {
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({})
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('validation_failed')
+  })
+
+  it('returns_400_when_unknown_fields_present', async () => {
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-1', maliciousField: 'attack' })
+
+    expect(res.status).toBe(400)
+    expect(res.body.code).toBe('validation_failed')
+  })
+
+  it('returns_200_on_successful_replay', async () => {
+    mockReplayService.replayEvent.mockResolvedValue({ success: true, message: 'Event successfully replayed' })
+
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-1' })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ success: true, message: 'Event successfully replayed' })
+  })
+
+  it('returns_idempotent_response_when_event_already_replayed', async () => {
+    mockReplayService.replayEvent.mockResolvedValue({ success: false, message: 'Event already replayed' })
+
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-already-done' })
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ success: false, message: 'Event already replayed' })
+  })
+
+  it('forwards_correct_arguments_to_replayService', async () => {
+    await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'event-42' })
+
+    expect(mockReplayService.replayEvent).toHaveBeenCalledWith(
+      'event-42',
+      'admin-1',
+      'admin@test.com',
+      'tenant-1',
+      expect.any(String),
+      undefined,
+    )
+  })
+
+  it('propagates_service_error_through_error_handler', async () => {
+    mockReplayService.replayEvent.mockRejectedValue(new Error('Event unknown-1 not found'))
+
+    const res = await request(setup())
+      .post('/api/admin/replay-event')
+      .send({ id: 'unknown-1' })
+
+    expect(res.status).toBe(500)
+    expect(res.body.code).toBe('internal_server_error')
   })
 })
 
