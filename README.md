@@ -627,7 +627,7 @@ To prevent duplicate side-effects (e.g., duplicate webhooks or notifications) wh
 
 For details on configuration and usage, see **[docs/REPLAY_SAFE_HANDLERS.md](docs/REPLAY_SAFE_HANDLERS.md)**.
 - [Replay & Inspection Guide (Operator)](docs/replay_and_inspection.md)
-- [Admin API Reference (Cache Purge, Roles, Audit Logs)](docs/admin-api.md)
+- [Event Ordering Guarantees](docs/EVENT_ORDERING.md)
 
 
 ## Observability & Logging
