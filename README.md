@@ -305,6 +305,8 @@ The backend implements a comprehensive timeout and retry strategy for all extern
 - Environment variable tuning guide
 - Operational runbook (symptom → diagnosis → tuning)
 
+For details on how deduplication keys are generated and how workers interact with the table to guarantee exactly-once processing, see **[docs/deduplication-policy.md](docs/deduplication-policy.md)**.
+
 ## Horizon Listener
 
 The service includes a Horizon withdrawal events listener that:
@@ -537,6 +539,8 @@ After running `npm run build`, migrations are executed from `dist/migrations/`.
 5. **Create new migrations** for schema changes
 6. **Back up production database** before running migrations
 
+For large data migrations or backfills, you can track their execution in real-time. See **[docs/backfill-progress.md](docs/backfill-progress.md)**.
+
 ## Tech
 
 - Node.js
@@ -595,6 +599,7 @@ For observability, request tracing, metrics, and structured logging guidelines:
 
 For security policies, reporting, and architecture documentation:
 - **Security Policy & Vulnerability Reporting**: See [SECURITY.md](SECURITY.md) for details on supported versions and how to report a vulnerability.
+- **Dependency Upgrades**: See [docs/dependency-upgrades.md](docs/dependency-upgrades.md) for how aggressively we upgrade deps and our review process.
 - **Security Architecture**: See [docs/security.md](docs/security.md) for details on the API key scope model, encrypted evidence storage, rate limiting, and dependency scanning SLAs.
 - **Canonical JWT Claims Reference**: See [docs/JWT_CLAIMS.md](docs/JWT_CLAIMS.md) for standard, custom, and impersonation JWT claims, headers, and consumer middleware.
 - **Rate Limiting Support & Operations**: See [docs/rate-limiting.md](docs/rate-limiting.md) for details on default tier rate limits, environment configuration, troubleshooting, and support FAQs.
