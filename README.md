@@ -15,6 +15,7 @@ This service is part of [Credence](../README.md). It supports:
 - **Horizon listener / identity state sync** – Reconciles DB with on-chain bond state (see [Identity state sync](#identity-state-sync)).
 - **Shadow write mode for safe pipeline migration** – Validates new settlement pipeline by writing to both old and new simultaneously and comparing results in metrics (see [Shadow Write Mode](docs/SHADOW_WRITE_MODE.md))
 - Reputation engine (off-chain score from bond data) (future)
+- **Downstream service dependencies**: see [docs/SERVICE_MAP.md](docs/SERVICE_MAP.md) for every external service the backend calls.
 
 ## Prerequisites
 
