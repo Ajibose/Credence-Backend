@@ -177,6 +177,13 @@ export const settlementUnmatchedCount = new client.Gauge({
   registers: [register],
 })
 
+export const shadowWriteMismatches = new client.Counter({
+  name: 'shadow_write_mismatches_total',
+  help: 'Total number of shadow write mode mismatches between old and new pipelines',
+  labelNames: ['mismatch_type'],
+  registers: [register]
+})
+
 // ============================================================================
 // Webhooks Metrics
 // ============================================================================
@@ -404,6 +411,24 @@ export function recordSettlementDrift(findingType: 'state_mismatch' | 'missing_o
  */
 export function setSettlementUnmatchedCount(count: number) {
   settlementUnmatchedCount.set(count)
+}
+
+/**
+ * Record shadow write mode mismatch between old and new pipelines
+ * 
+ * Usage:
+ * ```typescript
+ * import { recordShadowWriteMismatch } from './middleware/metrics.js'
+ * 
+ * if (oldResult.status !== newResult.status) {
+ *   recordShadowWriteMismatch('status_mismatch')
+ * }
+ * ```
+ */
+export function recordShadowWriteMismatch(
+  mismatchType: 'status_mismatch' | 'data_mismatch' | 'error_mismatch'
+) {
+  shadowWriteMismatches.inc({ mismatch_type: mismatchType })
 }
 
 /**
