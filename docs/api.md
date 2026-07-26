@@ -3,6 +3,7 @@
 - OpenAPI spec: [`docs/openapi.yaml`](openapi.yaml)
 - Postman collection: [`docs/credence.postman_collection.json`](credence.postman_collection.json)
 - Pagination contract: [`docs/PAGINATION_CONTRACT.md`](PAGINATION_CONTRACT.md) — cursor format, page-size limits, and ordering guarantees
+- Deprecation policy: [`docs/DEPRECATION_POLICY.md`](DEPRECATION_POLICY.md) — endpoint deprecation windows, communication cadence, and client migration guidelines
 
 ---
 
@@ -30,6 +31,14 @@ To help clients debug their retry loops, you may optionally provide an `x-reques
 ```
 x-request-attempt: 3
 ```
+
+## Cache Status Response Header
+
+For endpoints that utilize caching (such as analytics summaries), the response will include an `x-cache` header indicating the cache transaction status:
+
+* `HIT` — The request was fully served from the cache.
+* `MISS` — The cache did not contain the requested data, and it was fetched from the database or origin server.
+* `STALE` — The request was served from the cache, but the cached data was determined to be stale.
 
 ---
 
@@ -76,6 +85,16 @@ Accepted in any case (EIP-55 checksummed or all lower-case).
 
 **Valid:** `0xf39Fd6e51aad88F6f4ce6aB8827279cffFb92266`
 **Invalid:** `0x1234`, `f39fd6...` (no `0x` prefix), `not-an-address`
+
+---
+
+## Latency Budget
+
+Clients can provide an `x-request-latency-budget-ms` header in their requests. The server will echo this header back in its response. This allows clients to compare their view of the latency budget to the server-reported timing.
+
+```
+x-request-latency-budget-ms: 1500
+```
 
 ---
 

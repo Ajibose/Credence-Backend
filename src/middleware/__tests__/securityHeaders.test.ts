@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import express, { type Express } from 'express'
 import request from 'supertest'
 import { securityHeadersMiddleware, securityHeadersWithOverride } from '../securityHeaders.js'
+import { checkSecurityHeaders } from '../securityHeadersCheck.js'
+import { errorHandler } from '../errorHandler.js'
 
 describe('Security Headers Middleware', () => {
   let app: Express
@@ -362,6 +364,75 @@ it('includes preload directive in the HSTS header in non-production environment'
       
       expect(response.headers['x-middleware-test']).toBe('passed')
       expect(response.headers['content-security-policy']).toBeDefined()
+    })
+
+    it('prevents MIME-sniffing attacks with X-Content-Type-Options: nosniff', async () => {
+      app.use(securityHeadersMiddleware)
+      app.get('/api/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/api/test')
+      
+      // This is a negative test - it verifies the header IS present to prevent MIME-sniffing
+      expect(response.headers['x-content-type-options']).toBeDefined()
+      expect(response.headers['x-content-type-options']).toBe('nosniff')
+    })
+  })
+
+  describe('checkSecurityHeaders (negative test)', () => {
+    it('rejects when required security headers are missing with a typed error', async () => {
+      app.use((req, res, next) => {
+        res.removeHeader('content-security-policy')
+        res.removeHeader('strict-transport-security')
+        res.removeHeader('referrer-policy')
+        res.removeHeader('cross-origin-resource-policy')
+        res.removeHeader('x-content-type-options')
+        next()
+      })
+      app.use(checkSecurityHeaders)
+      app.use(errorHandler)
+      app.get('/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/test')
+
+      expect(response.status).toBe(500)
+      expect(response.body.error_code).toBe('missing_security_header')
+    })
+
+    it('passes when all required security headers are present', async () => {
+      app.use(securityHeadersMiddleware)
+      app.use(checkSecurityHeaders)
+      app.get('/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/test')
+
+      expect(response.status).toBe(200)
+      expect(response.headers['content-security-policy']).toBeDefined()
+    })
+
+    it('reports only the missing headers', async () => {
+      app.use((req, res, next) => {
+        res.removeHeader('content-security-policy')
+        res.removeHeader('strict-transport-security')
+        next()
+      })
+      app.use(checkSecurityHeaders)
+      app.use(errorHandler)
+      app.get('/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/test')
+
+      expect(response.status).toBe(500)
+      expect(response.body.error_code).toBe('missing_security_header')
+      expect(response.body.details).toContain('content-security-policy')
+      expect(response.body.details).toContain('strict-transport-security')
     })
   })
 })

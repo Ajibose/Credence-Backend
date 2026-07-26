@@ -18,13 +18,16 @@ import { BondService, BondStore } from "./services/bond/index.js";
 import { createBondRouter } from "./routes/bond.js";
 import { pool } from "./db/pool.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
+import { latencyBudgetMiddleware } from "./middleware/latencyBudget.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
 import { createCostMeterMiddleware } from "./middleware/costMeter.js";
 import { validateConfig } from "./config/index.js";
+import { securityHeadersMiddleware } from "./middleware/securityHeaders.js";
 import { createAttestationRouter } from "./routes/attestations.js";
 import { tenantContextMiddleware } from "./middleware/tenantContext.js";
 import { gracefulDegradeMiddleware } from "./middleware/gracefulDegrade.js";
+import { createDevResponseValidator } from "./middleware/validateResponse.js";
 import {
   compressionMiddleware,
   compressionMetricsMiddleware,
@@ -41,16 +44,11 @@ import reportRouter from "./routes/report.js";
 import { idempotencyMiddleware } from "./middleware/idempotency.js";
 import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
 import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
-import { createMembersRouter } from "./routes/admin/member.ts";
-import {
-  bondPathParamsSchema,
-  attestationsPathParamsSchema,
-  createAttestationBodySchema,
-} from "./schemas/index.js";
 import { clientVersionEchoMiddleware } from "./middleware/clientVersionEcho.js";
 import { requestAttemptEchoMiddleware } from "./middleware/requestAttemptEcho.js";
 import { RedisConnection } from "./cache/redis.js";
 import { createFaultInjectionRouter } from "./routes/faultInjection.js";
+import { cacheHeaderMiddleware } from "./middleware/cacheHeader.js";
 
 const app = express();
 
@@ -86,7 +84,16 @@ try {
 }
 const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
 
+let jwksCacheMaxAge: number;
+try {
+  jwksCacheMaxAge = validateConfig(process.env).jwt.jwksCacheMaxAgeSeconds;
+} catch {
+  jwksCacheMaxAge = 300;
+}
+
 app.use(requestIdMiddleware);
+app.use(securityHeadersMiddleware);
+app.use(cacheHeaderMiddleware);
 app.use(clientVersionEchoMiddleware);
 app.use(requestAttemptEchoMiddleware);
 app.use(timeoutBudgetMiddleware);
@@ -116,7 +123,7 @@ app.use(requestSizeLimitErrorHandler);
 app.use(tenantContextMiddleware);
 app.use(gracefulDegradeMiddleware);
 
-app.use("/.well-known/jwks.json", createJwksRouter());
+app.use("/.well-known/jwks.json", createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }));
 
 const healthProbes = createDefaultProbes();
 

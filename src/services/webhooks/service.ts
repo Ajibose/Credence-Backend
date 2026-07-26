@@ -148,6 +148,53 @@ export class WebhookService {
     this.rateLimitMap.set(webhookId, Date.now())
     return fn()
   }
+
+  /**
+   * Replay a specific webhook delivery from the DLQ.
+   */
+  async replayWebhook(dlqId: string, admin?: { id: string, email: string, tenantId: string }, requestId?: string): Promise<WebhookDeliveryResult> {
+    if (!this.dlq) {
+      throw new Error('DLQ is not configured')
+    }
+    const entry = await this.dlq.get(dlqId)
+    if (!entry) {
+      throw new Error('DLQ entry not found')
+    }
+
+    const webhook = await this.store.get(entry.webhookId)
+    if (!webhook) {
+      throw new Error('Webhook not found')
+    }
+
+    // Deliver without idempotency check since we are explicitly replaying
+    const result = await deliverWebhook(webhook, entry.payload, {
+      ...this.deliveryOptions,
+      returnAllChunks: true,
+      eventId: entry.payload.data && typeof entry.payload.data === 'object' && 'eventId' in entry.payload.data ? (entry.payload.data as any).eventId : undefined,
+    })
+
+    if (result.success) {
+      await this.dlq.markReplayed(dlqId, new Date().toISOString())
+    }
+
+    if (this.auditLog && admin) {
+      this.auditLog.logAction(
+        admin.tenantId,
+        admin.id,
+        admin.email,
+        AuditAction.REPLAY_WEBHOOK,
+        dlqId,
+        webhook.url,
+        { webhookId: entry.webhookId, success: result.success },
+        undefined,
+        undefined,
+        undefined,
+        requestId
+      )
+    }
+
+    return result
+  }
 }
 
 /**

@@ -1,3 +1,4 @@
+import type { Response } from 'express'
 import {
   ErrorCode as ErrorCodeRegistry,
   getErrorCatalogEntry,
@@ -166,4 +167,37 @@ export class RequestTooLargeError extends AppError {
   constructor(message: string = getErrorCatalogEntry(ErrorCodeRegistry.REQUEST_TOO_LARGE).defaultMessage) {
     super(message, ErrorCodeRegistry.REQUEST_TOO_LARGE)
   }
+}
+
+/**
+ * Send a structured error response using the centralized error catalog.
+ *
+ * This is a convenience helper for route handlers that need to return an
+ * error directly (rather than throwing an AppError through next()). It
+ * produces the same `{ error, code, error_code, details? }` envelope as
+ * the global error-handler middleware.
+ *
+ * In production, only the catalog default message is returned (no PII).
+ *
+ * @param statusOverride - Optional HTTP status override. When provided, the
+ *   response uses this status instead of the catalog default. Use sparingly
+ *   to preserve backward compatibility with existing API contracts.
+ */
+export function sendError(
+  res: Response,
+  code: ErrorCodeValue,
+  message?: string,
+  details?: unknown,
+  statusOverride?: number,
+): void {
+  const catalogEntry = getErrorCatalogEntry(code)
+  const status = statusOverride ?? getHttpStatus(catalogEntry)
+  const isProduction = process.env.NODE_ENV === 'production'
+
+  res.status(status).json({
+    error: isProduction ? catalogEntry.defaultMessage : (message ?? catalogEntry.defaultMessage),
+    code: catalogEntry.code,
+    error_code: catalogEntry.code,
+    ...(!isProduction && details !== undefined ? { details } : {}),
+  })
 }

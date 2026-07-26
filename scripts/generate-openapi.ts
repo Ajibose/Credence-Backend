@@ -869,6 +869,41 @@ registry.registerPath({
   },
 });
 
+// Admin Replay Webhook API
+registry.registerPath({
+  method: 'post',
+  path: '/api/admin/replay-webhook',
+  summary: 'Replay a failed webhook delivery',
+  description:
+    'Replays a specific failed webhook delivery from the DLQ by id (passed in body). Audit-logged via WebhookService.replayWebhook.',
+  tags: ['Admin'],
+  security: bearerAuth,
+  request: {
+    body: {
+      required: true,
+      content: { 'application/json': { schema: schemas.replayWebhookBodySchema } },
+    },
+  },
+  responses: {
+    200: {
+      description: 'Webhook replayed successfully',
+      content: {
+        'application/json': {
+          schema: z.any(), // Actual response is WebhookDeliveryResult
+        },
+      },
+    },
+    400: {
+      description: 'Validation error',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+    404: {
+      description: 'DLQ entry or Webhook not found',
+      content: { 'application/json': { schema: z.object({ error: z.string(), message: z.string() }) } },
+    },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
 const document = generator.generateDocument({
   openapi: '3.0.0',

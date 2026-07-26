@@ -20,6 +20,7 @@ import {
   type SubmitVoteBody,
   type SlashRequestPathParams,
 } from '../schemas/governance.js'
+import { sendError, ErrorCode } from '../lib/errors.js'
 
 const router = Router()
 
@@ -64,7 +65,7 @@ router.post(
         errorMessage: message,
       })
 
-      res.status(400).json({ error: 'BadRequest', message })
+      sendError(res, ErrorCode.VALIDATION_FAILED, message)
     }
   }
 )
@@ -84,7 +85,7 @@ router.post(
       const result = submitVote(requestId, voterId, choice)
 
       if (!result) {
-        res.status(404).json({ error: 'NotFound', message: 'Slash request not found' })
+        sendError(res, ErrorCode.NOT_FOUND, 'Slash request not found')
         return
       }
 
@@ -123,7 +124,8 @@ router.post(
       })
 
       const errorType = isDuplicateVoteError ? 'Conflict' : 'BadRequest'
-      res.status(statusCode).json({ error: errorType, message })
+      const code = isDuplicateVoteError ? ErrorCode.CONFLICT : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   }
 )
@@ -136,7 +138,7 @@ router.get(
     const validatedReq = req as ValidatedRequest<SlashRequestPathParams>
     const request = getSlashRequest(validatedReq.validated.params.id)
     if (!request) {
-      res.status(404).json({ error: 'NotFound', message: 'Slash request not found' })
+      sendError(res, ErrorCode.NOT_FOUND, 'Slash request not found')
       return
     }
     res.status(200).json(request)

@@ -1,25 +1,35 @@
 # Pull Request Description
 
 ## Overview
-This PR implements request-scoped logging context (`req.log`) on Express request objects. Route handlers and middlewares can now call `req.log.info()`, `req.log.warn()`, `req.log.error()`, or `req.log.debug()` to emit structured logs with the correct request metadata (`requestId`, `correlationId`, `route`, `tenant`, and `actor`) automatically populated. This resolves workarounds where context was lost during event loop execution.
+Prevents duplicate emissions if the outbox worker crashes mid-batch after publishing events externally but before marking them as "published" in the database.
 
-## Key Additions & Changes
-1. **Request Logger Types & Helpers** (`src/types/express.d.ts`, `src/utils/logger.ts`):
-   - Augment Express `Request` type definition to expose the `log: RequestLogger` property.
-   - Implement `createRequestLogger` in `logger.ts` to format logs with a custom/explicit context `Map`.
-   - Update `logger` methods (`info`, `warn`, `error`, `debug`) to accept `redactionContext` parameters.
+Closes #689
 
-2. **Middleware Attachment** (`src/middleware/requestId.ts`):
-   - Instantiate and bind `req.log` to a Proxy wrapper over the request tracing context.
-   - The Proxy implements dynamic fallback lookup for `tenant` and `actor` IDs from the request header/user properties, allowing downstream auth middlewares to cleanly update the logging context.
+## Problem
+When the `OutboxPublisher` crashes between `publish()` (external delivery) and `markPublished()` (DB update), the event is left in `processing` state. After the consumer lease expires, a new consumer reclaims the event and re-publishes it — causing a **duplicate emission**.
 
-3. **ESLint Plugin Update** (`src/observability/eslint-plugin-logger-schema.ts`):
-   - Modified the custom ESLint rules to parse and validate both `logger.x()` and `req.log.x()` expressions. This ensures that `req.log` calls conform to the allowlist PII schema validations.
+## Solution
+Added a `publish_idempotency_key` column to the `event_outbox` table. The publisher atomically sets a key **before** calling `publish()`. When a reclaimed event already has this key, the publisher skips the external publish step and moves straight to `markPublished`.
 
-4. **Documentation**:
-   - Updated `README.md`, `docs/LOGGING.md`, and `docs/observability.md` to document the new `req.log` logger, including example usages.
+### Key Changes
+1. **`src/db/outbox/types.ts`** — Added `publishIdempotencyKey?: string | null` to `OutboxEvent`
+2. **`src/db/outbox/schema.ts`** — Added `publish_idempotency_key TEXT` column to table schema and DO block auto-migration
+3. **`src/db/outbox/repository.ts`** — Added `trySetPublishIdempotencyKey()`, `clearPublishIdempotencyKey()` methods; updated `markPublished()`, `markFailed()`, `releaseClaims()` to clear the key; updated `claimEvents()` to return the column
+4. **`src/db/outbox/publisher.ts`** — Added idempotency guard in `processEvent()`: checks `event.publishIdempotencyKey` and atomically sets key before publish; centralized key builder in `buildPublishIdempotencyKey()`
+5. **`src/db/outbox/publisher.test.ts`** — Added 7 tests covering: key acquisition/rejection, markPublished clears key, markFailed clears key, releaseClaims clears key, reclaimed event mapping, concurrent consumer race prevention
+6. **`docs/outbox-scaling.md`** — Documented the idempotency mechanism with a table of scenarios
 
-5. **Tests**:
-   - Added `src/middleware/__tests__/requestLogger.test.ts` to test request context binding, dynamic updating of tenant/actor context, and deferred logging outside request lifecycles.
+### Behaviour Matrix
 
-Closes #866
+| Scenario | Behaviour |
+|---|---|
+| Normal publish | Key set → publish → markPublished (key cleared) |
+| Crash after publish, before markPublished | On reclaim: key present → skip publish → markPublished |
+| Publish fails | Key cleared by markFailed → retry |
+| Concurrent consumer race | Only one acquires the key; the second skips |
+| Graceful shutdown | releaseClaims clears the key |
+
+### Backward Compatibility
+- The new column is nullable and added via the existing DO block migration pattern
+- No breaking changes to the public API
+- All existing tests continue to pass (19/19)

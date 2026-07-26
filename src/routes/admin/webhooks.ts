@@ -4,6 +4,7 @@ import { PostgresWebhookRepository } from '../../db/repositories/webhookReposito
 import { pool } from '../../db/pool.js'
 import { AuthenticatedRequest, requireUserAuth, requireAdminRole, requireApiKey, ApiScope } from '../../middleware/auth.js'
 import { auditLogService } from '../../services/audit/index.js'
+import { sendError, ErrorCode } from '../../lib/errors.js'
 
 /**
  * Create the webhook admin router.
@@ -26,12 +27,30 @@ export function createWebhookAdminRouter(): Router {
    *
    * @requires webhooks:admin scope OR admin role
    */
-  router.post('/:id/rotate', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
+  router.post('/:id/rotate', requireUserAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params
       const admin = (req as AuthenticatedRequest).user!
       const requestId = (req as any).requestId
       
+      if (admin.role !== UserRole.ADMIN && admin.role !== UserRole.SUPER_ADMIN && (admin.role as string) !== 'super-admin') {
+        void auditLogService.logAction(
+          admin.tenantId || 'default-tenant',
+          admin.id,
+          admin.email,
+          AuditAction.ROTATE_WEBHOOK_SECRET,
+          id,
+          'webhook',
+          { id, reason: 'insufficient_permissions' },
+          'failure',
+          'Admin role required',
+          req.ip,
+          requestId
+        )
+        res.status(403).json({ error: 'Forbidden', message: 'Admin role required' })
+        return
+      }
+
       const webhook = await webhookService.rotateSecret(id, { id: admin.id, email: admin.email, tenantId: admin.tenantId }, requestId)
       
       res.json({
@@ -43,8 +62,7 @@ export function createWebhookAdminRouter(): Router {
         }
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      res.status(400).json({ error: message })
+      sendError(res, ErrorCode.VALIDATION_FAILED, err instanceof Error ? err.message : 'Unknown error')
     }
   })
 
@@ -69,8 +87,7 @@ export function createWebhookAdminRouter(): Router {
         message: 'Previous secret revoked successfully'
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      res.status(400).json({ error: message })
+      sendError(res, ErrorCode.VALIDATION_FAILED, err instanceof Error ? err.message : 'Unknown error')
     }
   })
 

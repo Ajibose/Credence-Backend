@@ -25,6 +25,14 @@ vi.mock('../../cache/invalidation.js', async () => {
   }
 })
 
+vi.mock('../../config/index.js', () => ({
+  loadConfig: () => ({
+    attestationCache: {
+      ttl: 120,
+    },
+  }),
+}))
+
 describe('AttestationCacheService', () => {
   let service: AttestationCacheService
   let mockRepository: AttestationsRepository
@@ -70,7 +78,7 @@ describe('AttestationCacheService', () => {
       const result = await service.getAttestationById(1)
 
       expect(mockRepository.findById).toHaveBeenCalledWith(1)
-      expect(cache.set).toHaveBeenCalledWith('attestation', 'id:1', mockAttestation, 300)
+      expect(cache.set).toHaveBeenCalledWith('attestation', 'id:1', mockAttestation, 120)
       expect(result).toEqual(mockAttestation)
     })
   })
@@ -93,7 +101,7 @@ describe('AttestationCacheService', () => {
       const result = await service.getAttestationsBySubject('0x123')
 
       expect(mockRepository.listBySubject).toHaveBeenCalledWith('0x123')
-      expect(cache.set).toHaveBeenCalledWith('attestation', 'subject:0x123', [mockAttestation], 300)
+      expect(cache.set).toHaveBeenCalledWith('attestation', 'subject:0x123', [mockAttestation], 120)
       expect(result).toEqual([mockAttestation])
     })
   })

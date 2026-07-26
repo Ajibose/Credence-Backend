@@ -18,6 +18,18 @@ export const envSchema = z.object({
       .default('600') // 10 minutes
       .transform(Number)
       .pipe(z.number().int().min(60).max(86400)),
+    // Bond cache TTL (seconds)
+    BOND_CACHE_TTL_SECONDS: z
+      .string()
+      .default('300') // 5 minutes
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(86400)),
+    // Attestation cache TTL (seconds)
+    ATTESTATION_CACHE_TTL_SECONDS: z
+      .string()
+      .default('300') // 5 minutes
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(86400)),
     // Webhook payload size cap in bytes
     WEBHOOK_PAYLOAD_SIZE_CAP: z
       .string()
@@ -75,6 +87,30 @@ export const envSchema = z.object({
     .default('5')
     .transform(Number)
     .pipe(z.number().int().min(1).max(50)),
+  /**
+   * Maximum connections in the read-replica pool. Falls back to DB_POOL_MAX
+   * when unset, so a single knob resizes the primary pool and the replica
+   * pool together by default. Set explicitly if the replica node should run
+   * with a different connection budget than the primary (#887).
+   */
+  DB_REPLICA_POOL_MAX: z
+    .string()
+    .optional()
+    .transform((val) => (val !== undefined && val !== '' ? Number(val) : undefined))
+    .pipe(z.union([z.undefined(), z.number().int().min(1).max(200)])),
+  /**
+   * Maximum acceptable replication lag (ms) before withReplica() falls back
+   * to the primary pool. Default: 1000 ms.
+   *
+   * Deliberately kept without a DB_ prefix to match the existing documented
+   * name in docs/architecture.md — renaming would silently break any
+   * deployment that already sets this variable.
+   */
+  MAX_REPLICA_LAG_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
   DB_LOCK_TIMEOUT_READONLY_MS: z
     .string()
     .default('1000')
@@ -132,6 +168,16 @@ export const envSchema = z.object({
     .default('300')
     .transform(Number)
     .pipe(z.number().int().nonnegative()),
+
+  /**
+   * Max-age (seconds) for the Cache-Control header on the JWKS endpoint.
+   * Default: 300 (5 minutes).
+   */
+  JWKS_CACHE_MAX_AGE_SECONDS: z
+    .string()
+    .default('300')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
 
   // JWT key rotation — private key source
   KEY_PRIVATE_PEM: z.string().optional(),
@@ -447,12 +493,32 @@ export const envSchema = z.object({
     .default('3600000')
     .transform(Number)
     .pipe(z.number().int().min(60000)), // minimum 1 minute
+
+  // Expired-sessions sweeper
+  /** TTL in seconds for session rows (default: 86400 = 24 hours). */
+  SESSION_TTL_SECONDS: z
+    .string()
+    .default('86400')
+    .transform(Number)
+    .pipe(z.number().int().min(60).max(2592000)), // 1 min to 30 days
+  /** Interval in ms between expired-sessions sweeper runs (default: 3600000 = 1 hour). */
+  SESSION_SWEEP_INTERVAL_MS: z
+    .string()
+    .default('3600000')
+    .transform(Number)
+    .pipe(z.number().int().min(60000)), // minimum 1 minute
 })
 
 export type Env = z.infer<typeof envSchema>
 
 export interface Config {
   trustScoreCache: {
+    ttl: number
+  }
+  bondCache: {
+    ttl: number
+  }
+  attestationCache: {
     ttl: number
   }
   port: number
@@ -477,6 +543,12 @@ export interface Config {
     workerPool: {
       max: number
     }
+    replicaPool: {
+      /** Maximum connections in the read-replica pool. Defaults to db.pool.max when DB_REPLICA_POOL_MAX is unset. */
+      max: number
+    }
+    /** Maximum acceptable replica lag (ms) before withReplica() falls back to the primary pool. */
+    maxReplicaLagMs: number
     /** Minimum query duration (ms) that triggers a slow-query log entry. 0 disables. */
     slowQueryThresholdMs: number
   }
@@ -497,6 +569,8 @@ export interface Config {
     privateKeyPem?: string
     /** Optional kid assigned to the key loaded from privateKeyPem. */
     initialKid?: string
+    /** Max-age (seconds) for the JWKS endpoint Cache-Control header. */
+    jwksCacheMaxAgeSeconds: number
   }
   devMode: boolean
   features: {
@@ -597,6 +671,12 @@ export interface Config {
     /** Interval in ms between sweeper cleanup runs. Default: 3600000 (1 h). */
     sweeperIntervalMs: number
   }
+  sessionSweep: {
+    /** TTL in seconds for session rows. Default: 86400 (24 h). */
+    ttlSeconds: number
+    /** Interval in ms between sweeper runs. Default: 3600000 (1 h). */
+    sweepIntervalMs: number
+  }
 }
 
 function parseCostWeights(raw: string): Record<string, number> {
@@ -691,6 +771,11 @@ function mapEnvToConfig(env: Env): Config {
       workerPool: {
         max: env.DB_WORKER_POOL_MAX,
       },
+      replicaPool: {
+        // Fall back to the primary pool size when not explicitly configured.
+        max: env.DB_REPLICA_POOL_MAX ?? env.DB_POOL_MAX,
+      },
+      maxReplicaLagMs: env.MAX_REPLICA_LAG_MS,
       slowQueryThresholdMs: env.SLOW_QUERY_THRESHOLD_MS,
     },
     redis: {
@@ -704,6 +789,7 @@ function mapEnvToConfig(env: Env): Config {
       clockSkewSeconds: env.KEY_CLOCK_SKEW_SECONDS,
       privateKeyPem: env.KEY_PRIVATE_PEM,
       initialKid: env.KEY_INITIAL_KID,
+      jwksCacheMaxAgeSeconds: env.JWKS_CACHE_MAX_AGE_SECONDS,
     },
     devMode: env.DEV_MODE,
     features: {
@@ -769,6 +855,12 @@ function mapEnvToConfig(env: Env): Config {
     trustScoreCache: {
       ttl: env.TRUST_SCORE_CACHE_TTL,
     },
+    bondCache: {
+      ttl: env.BOND_CACHE_TTL_SECONDS,
+    },
+    attestationCache: {
+      ttl: env.ATTESTATION_CACHE_TTL_SECONDS,
+    },
     sorobanCircuitBreaker: {
       failureThreshold: env.SOROBAN_CIRCUIT_BREAKER_FAILURE_THRESHOLD,
       openWindowMs: env.SOROBAN_CIRCUIT_BREAKER_OPEN_WINDOW_MS,
@@ -798,6 +890,10 @@ function mapEnvToConfig(env: Env): Config {
     idempotency: {
       ttlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
       sweeperIntervalMs: env.IDEMPOTENCY_SWEEPER_INTERVAL_MS,
+    },
+    sessionSweep: {
+      ttlSeconds: env.SESSION_TTL_SECONDS,
+      sweepIntervalMs: env.SESSION_SWEEP_INTERVAL_MS,
     },
   }
 

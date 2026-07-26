@@ -27,6 +27,14 @@ export const revokeApiKeyBodySchema = z
   .strict()
 
 /**
+ * Request body schema for rotating the JWT signing key.
+ * POST /api/admin/rotate-signing-key
+ */
+export const rotateSigningKeyBodySchema = z
+  .object({})
+  .strict()
+
+/**
  * Request body schema for issuing an impersonation token
  * POST /api/admin/impersonate
  */
@@ -105,6 +113,7 @@ export const migrationsDryRunResponseSchema = z.object({
 
 export type AssignRoleBody = z.infer<typeof assignRoleBodySchema>
 export type RevokeApiKeyBody = z.infer<typeof revokeApiKeyBodySchema>
+export type RotateSigningKeyBody = z.infer<typeof rotateSigningKeyBodySchema>
 export type IssueImpersonationTokenBody = z.infer<typeof issueImpersonationTokenBodySchema>
 export type InviteMemberBody = z.infer<typeof inviteMemberBodySchema>
 export type UpdateMemberRoleBody = z.infer<typeof updateMemberRoleBodySchema>
@@ -123,4 +132,32 @@ export const replayEventBodySchema = z
   .strict()
 
 export type ReplayEventBody = z.infer<typeof replayEventBodySchema>
+
+/**
+ * Request body schema for purging cache
+ * POST /api/admin/purge-cache
+ */
+export const purgeCacheBodySchema = z
+  .object({
+    namespace: z.string().min(1, 'namespace is required'),
+    key: z.string().optional(),
+    pattern: z.string().optional(),
+  })
+  .strict()
+
+/**
+ * Response schema for POST /api/admin/purge-cache
+ */
+export const purgeCacheResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  data: z.object({
+    namespace: z.string(),
+    clearedCount: z.number(),
+  }),
+})
+
+export type PurgeCacheBody = z.infer<typeof purgeCacheBodySchema>
+export type PurgeCacheResponse = z.infer<typeof purgeCacheResponseSchema>
+
 
