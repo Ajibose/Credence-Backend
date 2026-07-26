@@ -137,6 +137,13 @@ export const envSchema = z.object({
   KEY_PRIVATE_PEM: z.string().optional(),
   KEY_INITIAL_KID: z.string().optional(),
 
+  // Dev mode – enables dev-only endpoints (e.g. fault injection for chaos testing).
+  // Must NOT be set to "true" in production.
+  DEV_MODE: z
+    .string()
+    .default('false')
+    .transform((val: string) => val === 'true'),
+
   // Feature flags
   ENABLE_TRUST_SCORING: z
     .string()
@@ -491,6 +498,7 @@ export interface Config {
     /** Optional kid assigned to the key loaded from privateKeyPem. */
     initialKid?: string
   }
+  devMode: boolean
   features: {
     trustScoring: boolean
     bondEvents: boolean
@@ -697,6 +705,7 @@ function mapEnvToConfig(env: Env): Config {
       privateKeyPem: env.KEY_PRIVATE_PEM,
       initialKid: env.KEY_INITIAL_KID,
     },
+    devMode: env.DEV_MODE,
     features: {
       trustScoring: env.ENABLE_TRUST_SCORING,
       bondEvents: env.ENABLE_BOND_EVENTS,

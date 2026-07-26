@@ -213,4 +213,11 @@ export {
   type VersionResponse,
 } from './version.js'
 
+export {
+  faultInjectionRequestSchema,
+  faultInjectionResponseSchema,
+  type FaultInjectionRequest,
+  type FaultInjectionResponse,
+} from './faultInjection.js'
+
 

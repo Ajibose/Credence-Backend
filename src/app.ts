@@ -32,61 +32,6 @@ import {
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
 import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
- feat/request-attempt-header
-import {
-  bondPathParamsSchema,
-  attestationsPathParamsSchema,
-  createAttestationBodySchema,
-} from './schemas/index.js'
-import { compressionMiddleware, compressionMetricsMiddleware } from './middleware/compression.js'
-import { metricsMiddleware, register } from './middleware/metrics.js'
-import { createMembersRouter } from './routes/admin/member.ts'
-import { clientVersionEchoMiddleware } from './middleware/clientVersionEcho.js'
-import { requestAttemptEchoMiddleware } from './middleware/requestAttemptEcho.js'
-
-const app = express()
-
-// Request context and correlation IDs
-app.use(requestIdMiddleware)
-
-// Debugging echo
-app.use(clientVersionEchoMiddleware)
-app.use(requestAttemptEchoMiddleware)
-
-// Metrics endpoint for Prometheus
-app.get('/metrics', async (_req, res) => {
-  res.set('Content-Type', register.contentType)
-  res.end(await register.metrics())
-})
-
-app.use(metricsMiddleware)
-app.use(compressionMetricsMiddleware)
-app.use(compressionMiddleware)
-app.use(express.json())
-
-// JWT public key set — unauthenticated, per RFC 8414 / OIDC Discovery conventions
-app.use('/.well-known/jwks.json', createJwksRouter())
-
-// Health – full readiness check with per-dependency status
-const healthProbes = createDefaultProbes()
-
-// If Redis is configured, wire up a client for the worker-health endpoint
-let redisClient: import('./cache/redis.js').RedisClient | undefined
-if (process.env.REDIS_URL) {
-  try {
-    const conn = RedisConnection.getInstance()
-    // Best-effort connect — the endpoint degrades gracefully if Redis is down
-    conn.connect().catch(() => {})
-    redisClient = conn.getClient()
-  } catch {
-    // Redis may not be reachable at startup; worker-health will degrade gracefully
-  }
-}
-
-app.use('/api/health', createHealthRouter({ ...healthProbes, redisClient }))
- main
-
-// Add missing imports used in the router
 import {
   jsonBodyParser,
   requestSizeLimitErrorHandler,
@@ -96,6 +41,16 @@ import reportRouter from "./routes/report.js";
 import { idempotencyMiddleware } from "./middleware/idempotency.js";
 import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
 import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
+import { createMembersRouter } from "./routes/admin/member.ts";
+import {
+  bondPathParamsSchema,
+  attestationsPathParamsSchema,
+  createAttestationBodySchema,
+} from "./schemas/index.js";
+import { clientVersionEchoMiddleware } from "./middleware/clientVersionEcho.js";
+import { requestAttemptEchoMiddleware } from "./middleware/requestAttemptEcho.js";
+import { RedisConnection } from "./cache/redis.js";
+import { createFaultInjectionRouter } from "./routes/faultInjection.js";
 
 const app = express();
 
@@ -110,8 +65,6 @@ let rateLimitConfig: {
 try {
   rateLimitConfig = validateConfig(process.env).rateLimit;
 } catch {
-  // Fail-closed by default in production so a misconfigured startup cannot
-  // silently disable rate limiting and expose the API to abuse.
   const isProd = process.env.NODE_ENV === "production";
   rateLimitConfig = {
     enabled: true,
@@ -129,11 +82,13 @@ let globalTimeoutMs: number;
 try {
   globalTimeoutMs = validateConfig(process.env).timeouts.global;
 } catch {
-  globalTimeoutMs = 30000; // 30s default
+  globalTimeoutMs = 30000;
 }
 const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
 
 app.use(requestIdMiddleware);
+app.use(clientVersionEchoMiddleware);
+app.use(requestAttemptEchoMiddleware);
 app.use(timeoutBudgetMiddleware);
 
 const metricsCidrs = process.env.METRICS_ALLOWED_CIDRS
@@ -164,14 +119,22 @@ app.use(gracefulDegradeMiddleware);
 app.use("/.well-known/jwks.json", createJwksRouter());
 
 const healthProbes = createDefaultProbes();
-app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
+
+let redisClient: import("./cache/redis.js").RedisClient | undefined;
+if (process.env.REDIS_URL) {
+  try {
+    const conn = RedisConnection.getInstance();
+    conn.connect().catch(() => {});
+    redisClient = conn.getClient();
+  } catch {
+  }
+}
+
+app.use("/api/health", createHealthRouter({ ...healthProbes, isReady, redisClient }));
 app.use("/api/version", createVersionRouter());
 
 app.use("/api", rateLimitMiddleware);
 
-// ── Idempotency middleware ────────────────────────────────────────────────────
-// Must run after body parsing (jsonBodyParser) and before route handlers so the
-// full request body is available when computing the payload hash.
 try {
   const idempotencyConfig = validateConfig(process.env).idempotency;
   const idempotencyRepo = new IdempotencyRepository(pool);
@@ -182,9 +145,7 @@ try {
     }),
   );
 } catch {
-  // If config is invalid, idempotency middleware is safely skipped
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 try {
   const config = validateConfig(process.env);
@@ -196,7 +157,6 @@ try {
   const costMeterMiddleware = createCostMeterMiddleware(costMeterConfig, () => pool);
   app.use("/api", costMeterMiddleware);
 } catch {
-  // If config is invalid, cost metering is safely skipped
 }
 
 app.use("/api/trust", trustRouter);
@@ -210,10 +170,6 @@ app.use("/api/bulk", bulkRouter);
 
 app.use("/api/imports", createImportsRouter());
 
-// Defence-in-depth open-redirect guard: applied once here (rather than in
-// each admin route handler) so it covers every current and future 302 under
-// /api/admin/*, including the webhooks and feature-flags sub-routers mounted
-// below. See docs/SECURITY.md#open-redirect-protection.
 const adminRedirectAllowedHosts = process.env.ADMIN_REDIRECT_ALLOWED_HOSTS
   ?.split(",")
   .map((s) => s.trim())
@@ -237,6 +193,16 @@ app.use("/api/analytics", createAnalyticsRouter(analyticsService));
 app.use("/api/payouts", createPayoutsRouter());
 
 app.use("/api/reports", reportRouter);
+
+let devMode = false;
+try {
+  devMode = validateConfig(process.env).devMode;
+} catch {
+}
+app.use(
+  "/api/dev/fault-injection",
+  createFaultInjectionRouter({ devMode }),
+);
 
 app.use(errorHandler);
 
