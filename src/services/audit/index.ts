@@ -333,4 +333,5 @@ export type {
   TopTalkerEntry,
   TopTalkersReport,
 } from './types.js'
+export * from './serviceAccountAudit.js'
 
