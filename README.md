@@ -303,6 +303,8 @@ The backend implements a comprehensive timeout and retry strategy for all extern
 - Environment variable tuning guide
 - Operational runbook (symptom → diagnosis → tuning)
 
+For details on how deduplication keys are generated and how workers interact with the table to guarantee exactly-once processing, see **[docs/deduplication-policy.md](docs/deduplication-policy.md)**.
+
 ## Horizon Listener
 
 The service includes a Horizon withdrawal events listener that:
