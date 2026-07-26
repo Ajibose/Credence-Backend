@@ -294,9 +294,55 @@ export function instrumentSlowQueryLogging(
   }) as unknown as Pool["query"];
 }
 
+import { trace, SpanStatusCode } from "@opentelemetry/api";
+
+export function instrumentQueryTracing(target: Pool, poolName: PoolName): void {
+  const originalQuery = target.query.bind(target) as (...args: unknown[]) => unknown;
+
+  target.query = ((...args: unknown[]) => {
+    // Callback-style calls aren't used anywhere in this codebase; pass them
+    // through unmodified.
+    if (typeof args[args.length - 1] === "function") {
+      return originalQuery(...args);
+    }
+
+    const text = extractQueryText(args) || "unknown";
+    const tracer = trace.getTracer("credence-backend");
+
+    return tracer.startActiveSpan("db.query", async (span) => {
+      span.setAttribute("db.system", "postgresql");
+      span.setAttribute("db.statement", text);
+      span.setAttribute("db.pool", poolName);
+
+      try {
+        const result = await (originalQuery(...args) as Promise<QueryResult>);
+        if (result && typeof result.rowCount === "number") {
+          span.setAttribute("db.row_count", result.rowCount);
+        }
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: err instanceof Error ? err.message : "Unknown error",
+        });
+        span.recordException(err as Error);
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  }) as unknown as Pool["query"];
+}
+
 instrumentSlowQueryLogging(pool, "api");
+instrumentQueryTracing(pool, "api");
+
 instrumentSlowQueryLogging(workerPool, "worker");
+instrumentQueryTracing(workerPool, "worker");
+
 instrumentSlowQueryLogging(replicaPool, "replica");
+instrumentQueryTracing(replicaPool, "replica");
 
 /**
  * Helper to execute an operation on the replica, falling back to primary
