@@ -78,6 +78,11 @@ const QUEUE_EVENT_SCHEMAS: Record<string, ZodType> = {
   'bond.withdrawal': withdrawalEventSchema,
 }
 
+/** Build a deterministic idempotency key from the consumer and event IDs. */
+function buildPublishIdempotencyKey(consumerId: string, eventId: bigint): string {
+  return `outbox-pub:${consumerId}:${eventId}`
+}
+
 const KNOWN_OUTBOX_EVENT_TYPES = new Set([
   'bond.created',
   'bond.slashed',
@@ -299,11 +304,33 @@ export class OutboxPublisher {
 
   /**
    * Process a single event with error handling and retry logic.
+   * Uses a publish idempotency key to prevent duplicate emissions if the
+   * worker crashes mid-batch after publish but before markPublished.
    */
   private async processEvent(event: OutboxEvent): Promise<void> {
     const poison = this.detectPoisonPill(event)
     if (poison) {
       await this.quarantineEvent(event, poison.reason, poison.message)
+      return
+    }
+
+    // Idempotency guard: if this event was already published by a previous
+    // (crashed) consumer, skip publish and go straight to markPublished.
+    if (event.publishIdempotencyKey) {
+      logger.info(`[OutboxPublisher] Event ${event.id} already has publish idempotency key — skipping publish`)
+      await this.repository.markPublished(pool, event.id)
+      incrementOutboxPublished(event.aggregateType)
+      return
+    }
+
+    // Atomically set the idempotency key BEFORE publishing.  If another
+    // consumer already set it (extremely rare race), treat as duplicate.
+    const key = buildPublishIdempotencyKey(this.consumerId, event.id)
+    const acquired = await this.repository.trySetPublishIdempotencyKey(pool, event.id, key)
+    if (!acquired) {
+      logger.info(`[OutboxPublisher] Event ${event.id} publish idempotency key already set — skipping publish`)
+      await this.repository.markPublished(pool, event.id)
+      incrementOutboxPublished(event.aggregateType)
       return
     }
 
@@ -347,6 +374,7 @@ export class OutboxPublisher {
             error
           )
           try {
+            // markFailed also clears the idempotency key so the event can be retried
             const result = await this.repository.markFailed(pool, event.id, errorMessage)
             if (result?.status === 'dead_letter') {
               // Normalize a short error code for metrics
