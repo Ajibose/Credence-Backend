@@ -72,9 +72,9 @@ describe('GET /.well-known/jwks.json', () => {
     }
   })
 
-  it('sets Cache-Control header with max-age=300', async () => {
+  it('sets Cache-Control header with max-age=600', async () => {
     const res = await request(app).get('/.well-known/jwks.json')
-    expect(res.headers['cache-control']).toContain('max-age=300')
+    expect(res.headers['cache-control']).toContain('max-age=600')
   })
 
   it('returns 503 if keyManager.getPublicJwks throws', async () => {

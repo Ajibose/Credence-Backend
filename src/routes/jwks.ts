@@ -24,7 +24,7 @@ import { keyManager } from '../services/keyManager/index.js'
  * tokens whose `exp` or `iat` values differ slightly due to clock drift.
  *
  * ## Caching
- * The response includes `Cache-Control: public, max-age=300, stale-while-revalidate=60`.
+ * The response includes `Cache-Control: public, max-age=600, stale-while-revalidate=60`.
  * Consumers caching this response should re-fetch when they encounter an unknown
  * `kid` in a JWT header, as a rotation may have occurred.
  */
@@ -36,7 +36,7 @@ export function createJwksRouter(): Router {
       const jwks = await keyManager.getPublicJwks()
       res
         .status(200)
-        .set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60')
+        .set('Cache-Control', 'public, max-age=600, stale-while-revalidate=60')
         .json(jwks)
     } catch {
       res.status(503).json({ error: 'Key manager not initialized' })
