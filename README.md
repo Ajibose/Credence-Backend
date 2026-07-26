@@ -633,6 +633,7 @@ For details on configuration and usage, see **[docs/REPLAY_SAFE_HANDLERS.md](doc
 
 For observability, request tracing, metrics, and structured logging guidelines:
 - **Structured Logging Policy**: See [docs/LOGGING.md](docs/LOGGING.md) for logs, formats, and conventions.
+- **Log Retention**: See [docs/LOG_RETENTION.md](docs/LOG_RETENTION.md) for how long each log type is kept and where.
 - **Request Tracing & Metrics**: See [docs/observability.md](docs/observability.md) for request tracing, PII redaction rules, and the `req.log` request-scoped logger.
 
 ## Security
