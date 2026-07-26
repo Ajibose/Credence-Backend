@@ -243,6 +243,8 @@ Comprehensive monitoring with Prometheus and Grafana is available. See **[docs/m
 - Alert rules
 - Deployment instructions
 
+Alert routing — how a fired metric becomes a PagerDuty page or Slack message — is documented in **[docs/alert-routing-pipeline.md](docs/alert-routing-pipeline.md)** (contributor guide) and **[docs/alert-routing.md](docs/alert-routing.md)** (on-call reference).
+
 Quick start:
 
 ```bash
