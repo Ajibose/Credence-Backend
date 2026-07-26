@@ -261,6 +261,7 @@ Comprehensive monitoring with Prometheus and Grafana is available.
 - Grafana dashboard setup
 - Prometheus configuration
 - Alert rules
+- Queue monitoring on-call guide: **[docs/QUEUE_MONITORING.md](docs/QUEUE_MONITORING.md)**
 - Deployment instructions
 
 Alert routing — how a fired metric becomes a PagerDuty page or Slack message — is documented in **[docs/alert-routing-pipeline.md](docs/alert-routing-pipeline.md)** (contributor guide) and **[docs/alert-routing.md](docs/alert-routing.md)** (on-call reference).
