@@ -148,5 +148,42 @@ export function createOutboxAdminRouter(repository = new OutboxRepository()): Ro
     }
   )
 
+  /**
+   * POST /pause
+   *
+   * Pause the outbox publisher. Requires admin authentication.
+   * Logs an audit entry on success.
+   */
+  router.post(
+    '/pause',
+    requireUserAuth,
+    requireAdminRole,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+
+        await auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.OUTBOX_PAUSE,
+          admin.id,
+          undefined,
+          undefined,
+          'success',
+          undefined,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json({ success: true, message: 'Outbox publisher paused' })
+      } catch (error) {
+        next(error)
+      }
+    }
+  )
+
   return router
 }
