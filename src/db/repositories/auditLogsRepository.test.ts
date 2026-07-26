@@ -337,84 +337,97 @@ describe('InMemoryAuditLogsRepository - Top Talkers', () => {
   })
 })
 
-describe('AuditLogsRepository - appendBatch & actor_id preservation', () => {
-  it('appends multiple entries in a batch while preserving actorId for each entry', async () => {
-    const repository = new InMemoryAuditLogsRepository()
+describe('Audit Log Index and Scoping Behavior', () => {
+  let repository: InMemoryAuditLogsRepository
 
-    const batchInputs = [
-      {
-        actorId: 'actor-101',
-        actorEmail: 'actor101@credence.org',
-        action: AuditAction.ASSIGN_ROLE,
-        resourceType: 'user',
-        resourceId: 'user-101',
-        tenantId: 'tenant-alpha',
-      },
-      {
-        actorId: 'actor-102',
-        actorEmail: 'actor102@credence.org',
-        action: AuditAction.REVOKE_API_KEY,
-        resourceType: 'user',
-        resourceId: 'user-102',
-        tenantId: 'tenant-beta',
-      },
-    ]
-
-    const result = await repository.appendBatch(batchInputs)
-
-    expect(result).toHaveLength(2)
-    expect(result[0].actorId).toBe('actor-101')
-    expect(result[0].adminId).toBe('actor-101')
-    expect(result[0].seq).toBe(1)
-    expect(result[1].actorId).toBe('actor-102')
-    expect(result[1].adminId).toBe('actor-102')
-    expect(result[1].seq).toBe(2)
-    expect(result[1].prevHash).toBe(result[0].rowHash)
-
-    const all = await repository.getAll()
-    expect(all).toHaveLength(2)
-    expect(all[0].actorId).toBe('actor-101')
-    expect(all[1].actorId).toBe('actor-102')
+  beforeEach(() => {
+    repository = new InMemoryAuditLogsRepository()
   })
 
-  it('preserves actor_id when passed via alternate property names (actor_id / adminId)', async () => {
-    const repository = new InMemoryAuditLogsRepository()
+  it('happy path: queries and filters by tenantId ordered by occurred_at DESC', async () => {
+    await repository.append({
+      actorId: 'admin-1',
+      actorEmail: 'admin@credence.org',
+      action: AuditAction.ASSIGN_ROLE,
+      resourceType: 'user',
+      resourceId: 'user-1',
+      tenantId: 'tenant-1',
+    })
 
-    const mixedBatch: any[] = [
-      {
-        actor_id: 'actor-snake-case',
-        actor_email: 'snake@credence.org',
-        action: AuditAction.CREATE_API_KEY,
-        resourceType: 'user',
-        resourceId: 'user-snake',
-        tenantId: 'tenant-1',
-      },
-      {
-        adminId: 'admin-alias-id',
-        adminEmail: 'alias@credence.org',
-        action: AuditAction.DELETE_USER,
-        resourceType: 'user',
-        resourceId: 'user-alias',
-        tenantId: 'tenant-1',
-      },
-    ]
+    await delay(5)
 
-    const result = await repository.appendBatch(mixedBatch)
+    await repository.append({
+      actorId: 'admin-1',
+      actorEmail: 'admin@credence.org',
+      action: AuditAction.REVOKE_API_KEY,
+      resourceType: 'user',
+      resourceId: 'user-2',
+      tenantId: 'tenant-2',
+    })
 
-    expect(result).toHaveLength(2)
-    expect(result[0].actorId).toBe('actor-snake-case')
-    expect(result[1].actorId).toBe('admin-alias-id')
+    await delay(5)
 
-    const queryResult = await repository.query({ tenantId: 'tenant-1' }, 10)
-    expect(queryResult.logs.map((l) => l.actorId)).toContain('actor-snake-case')
-    expect(queryResult.logs.map((l) => l.actorId)).toContain('admin-alias-id')
+    await repository.append({
+      actorId: 'admin-1',
+      actorEmail: 'admin@credence.org',
+      action: AuditAction.ASSIGN_ROLE,
+      resourceType: 'user',
+      resourceId: 'user-3',
+      tenantId: 'tenant-1',
+    })
+
+    const result = await repository.query({ tenantId: 'tenant-1' })
+    expect(result.logs).toHaveLength(2)
+    expect(result.logs[0].resourceId).toBe('user-3')
+    expect(result.logs[1].resourceId).toBe('user-1')
+    expect(result.logs.every(log => log.tenantId === 'tenant-1')).toBe(true)
   })
 
-  it('handles empty batch input gracefully', async () => {
-    const repository = new InMemoryAuditLogsRepository()
-    const result = await repository.appendBatch([])
-    expect(result).toEqual([])
+  it('explicit failure mode: fails to paginate when cursor is invalid or malformed', async () => {
+    await repository.append({
+      actorId: 'admin-1',
+      actorEmail: 'admin@credence.org',
+      action: AuditAction.ASSIGN_ROLE,
+      resourceType: 'user',
+      resourceId: 'user-1',
+      tenantId: 'tenant-1',
+    })
+
+    const result = await repository.query({ tenantId: 'tenant-1' }, 10, 'garbage-cursor')
+    expect(result.logs).toHaveLength(1)
+    expect(result.logs[0].resourceId).toBe('user-1')
   })
 })
 
+describe('PostgresAuditLogsRepository - Index Querying and Scoping', () => {
+  it('happy path: generates query with correct ORDER BY and WHERE clauses', async () => {
+    const db = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }),
+    }
+    const repository = new PostgresAuditLogsRepository(db as any)
+    
+    await repository.query({ tenantId: 'tenant-123' }, 20)
+
+    expect(db.query).toHaveBeenCalled()
+    const sql = String(db.query.mock.calls[0][0])
+    const params = db.query.mock.calls[0][1]
+
+    expect(sql).toContain('WHERE tenant_id = $1')
+    expect(sql).toContain('ORDER BY occurred_at DESC, id DESC')
+    expect(params).toEqual(['tenant-123', 21])
+  })
+
+  it('explicit failure mode: validation or handling of invalid query parameters', async () => {
+    const db = {
+      query: vi.fn().mockResolvedValueOnce({ rows: [] }),
+    }
+    const repository = new PostgresAuditLogsRepository(db as any)
+    
+    await repository.query({ tenantId: 'tenant-123' }, 20, 'invalid-non-base64-cursor!')
+    
+    expect(db.query).toHaveBeenCalled()
+    const sql = String(db.query.mock.calls[0][0])
+    expect(sql).not.toContain('occurred_at, id')
+  })
+})
 

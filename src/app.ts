@@ -35,9 +35,6 @@ import {
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
 import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
-import { clientVersionEchoMiddleware } from "./middleware/clientVersionEcho.js";
-import { requestAttemptEchoMiddleware } from "./middleware/requestAttemptEcho.js";
-import { cacheHeaderMiddleware } from "./middleware/cacheHeader.js";
 
 // Add missing imports used in the router
 import {
@@ -49,6 +46,9 @@ import reportRouter from "./routes/report.js";
 import { idempotencyMiddleware } from "./middleware/idempotency.js";
 import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
 import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
+
+import { clientVersionEchoMiddleware } from './middleware/clientVersionEcho.js'
+import { requestAttemptEchoMiddleware } from './middleware/requestAttemptEcho.js'
 
 const app = express();
 
@@ -86,6 +86,10 @@ app.use(cacheHeaderMiddleware);
 app.use(clientVersionEchoMiddleware);
 app.use(requestAttemptEchoMiddleware);
 app.use(timeoutBudgetMiddleware);
+
+// Debugging echo
+app.use(clientVersionEchoMiddleware)
+app.use(requestAttemptEchoMiddleware)
 
 const metricsCidrs = process.env.METRICS_ALLOWED_CIDRS
   ?.split(",")
