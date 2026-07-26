@@ -6,7 +6,7 @@ import { idempotencyMiddleware } from '../../middleware/idempotency.js'
 import type { IdempotencyRepository, IdempotencyRecord, CreateIdempotencyInput } from '../../db/repositories/idempotencyRepository.js'
 
 // ---- Mutable mock user for RBAC tests ----
-const { mockUserRef, mockIdempotencyStore, mockAuditLogService } = vi.hoisted(() => ({
+const { mockUserRef, mockIdempotencyStore, mockAuditLogService, mockKeyManager } = vi.hoisted(() => ({
   mockUserRef: { current: null as { id: string; email: string; role: string; tenantId: string } | null },
   mockIdempotencyStore: new Map<string, IdempotencyRecord>(),
   mockAuditLogService: {
@@ -15,6 +15,10 @@ const { mockUserRef, mockIdempotencyStore, mockAuditLogService } = vi.hoisted(()
     clearLogs: vi.fn().mockResolvedValue(undefined),
     getLogs: vi.fn().mockResolvedValue({ logs: [], hasNextPage: false }),
     exportLogsStream: vi.fn().mockImplementation(async function* () {}),
+  },
+  mockKeyManager: {
+    initialize: vi.fn(),
+    rotate: vi.fn(),
   },
 }))
 
@@ -54,6 +58,8 @@ vi.mock('../../services/audit/index.js', () => ({
     LIST_FAILED_EVENTS: 'LIST_FAILED_EVENTS',
     REPLAY_REQUEST: 'REPLAY_REQUEST',
     EXPORT_AUDIT_LOGS: 'EXPORT_AUDIT_LOGS',
+    ROTATE_SIGNING_KEY: 'ROTATE_SIGNING_KEY',
+    RELOAD_CONFIG: 'RELOAD_CONFIG',
   },
 }))
 
@@ -86,6 +92,10 @@ vi.mock('../../services/admin/index.js', () => ({
 
 vi.mock('../../services/impersonation/index.js', () => ({
   impersonationService: mockImpersonationService,
+}))
+
+vi.mock('../../services/keyManager/index.js', () => ({
+  keyManager: mockKeyManager,
 }))
 
 // ---- Mock pagination ----
@@ -174,6 +184,34 @@ describe('Admin Router - Strict Validation', () => {
       tenantId: 'tenant-1',
     }
     mockIdempotencyStore.clear()
+    mockKeyManager.initialize.mockResolvedValue(undefined)
+    mockKeyManager.rotate.mockResolvedValue({ newKid: 'new-kid', retiredKid: 'old-kid' })
+  })
+
+  describe('POST /api/admin/rotate-signing-key', () => {
+    it('rotates the JWT signing key and records an audit event', async () => {
+      const res = await request(setup())
+        .post('/api/admin/rotate-signing-key')
+        .send({})
+
+      expect(res.status).toBe(200)
+      expect(res.body.success).toBe(true)
+      expect(res.body.data.activeKid).toBe('new-kid')
+      expect(mockKeyManager.rotate).toHaveBeenCalledTimes(1)
+      expect(mockAuditLogService.logAction).toHaveBeenCalled()
+    })
+
+    it('returns a typed service-unavailable error when the key manager is not ready', async () => {
+      mockKeyManager.initialize.mockRejectedValueOnce(new Error('KeyManager not initialized — call initialize() first'))
+
+      const res = await request(setup())
+        .post('/api/admin/rotate-signing-key')
+        .send({})
+
+      expect(res.status).toBe(503)
+      expect(res.body.code).toBe('service_unavailable')
+      expect(res.body.details?.reason).toBe('key_manager_uninitialized')
+    })
   })
 
   describe('POST /api/admin/roles/assign', () => {
@@ -505,11 +543,11 @@ describe('Admin Router - Strict Validation', () => {
       expect(callArgs[0]).toBe('tenant-1')
       expect(callArgs[1]).toBe('admin-1')
       expect(callArgs[2]).toBe('admin@test.com')
-      expect(callArgs[3]).toBe('UPDATE_SETTINGS')
+      expect(callArgs[3]).toBe('RELOAD_CONFIG')
       expect(callArgs[4]).toBe('system')
 
       // The details should contain the action marker
-      expect(callArgs[6]).toEqual({ action: 'refresh-secrets' })
+      expect(callArgs[6]).toEqual({ action: 'reload-config' })
 
       // ipAddress and requestId are passed
       expect(callArgs[9]).toBeDefined() // ipAddress

@@ -36,7 +36,9 @@ import {
   revokeApiKeyBodySchema,
   issueImpersonationTokenBodySchema,
   replayEventBodySchema,
+  rotateSigningKeyBodySchema,
 } from '../../schemas/admin.js'
+import { keyManager } from '../../services/keyManager/index.js'
 import type { ReplayEventBody } from '../../schemas/admin.js'
 import { z } from 'zod'
 import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
@@ -195,6 +197,58 @@ export function createAdminRouter(): Router {
    * @deprecated Use /reload-config instead.
    */
   router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/rotate-signing-key
+   * Rotate the active JWT signing key and retain the previous key in the grace window.
+   */
+  router.post('/rotate-signing-key', requireUserAuth, requireAdminRole, validate({ body: rotateSigningKeyBodySchema }), async (req: Request, res: Response, next) => {
+    try {
+      const authReq = req as AuthenticatedRequest
+      const user = authReq.user!
+      const requestId = (req as any).requestId
+
+      try {
+        await keyManager.initialize()
+        const result = await keyManager.rotate()
+
+        await auditLogService.logAction(
+          user.tenantId,
+          user.id,
+          user.email,
+          AuditAction.ROTATE_SIGNING_KEY,
+          'signing_key',
+          result.newKid,
+          {
+            rotatedFromKid: result.retiredKid,
+            rotatedToKid: result.newKid,
+            threatMitigated: 'prevents stale JWT verification keys from being silently reused beyond the grace window',
+          },
+          undefined,
+          undefined,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json({ success: true, data: { activeKid: result.newKid, retiredKid: result.retiredKid } })
+        return
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('KeyManager not initialized')) {
+          const err = new AppError(
+            'JWT signing key rotation is unavailable because the key manager is not initialized',
+            ErrorCode.SERVICE_UNAVAILABLE,
+            503,
+            { reason: 'key_manager_uninitialized' }
+          )
+          next(err)
+          return
+        }
+        throw error
+      }
+    } catch (error) {
+      next(error)
+    }
+  })
 
   /**
    * POST /api/admin/keys/revoke
