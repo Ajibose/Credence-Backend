@@ -8,3 +8,5 @@ This directory contains additional documentation for the Credence Backend.
 - **[Replay‑Safe Handlers & Side‑Effects](REPLAY_SAFE_HANDLERS.md)** – ensuring side‑effects are safe during retries.
 - **[Idempotency Guard](IDEMPOTENCY_GUARD.md)** – replay protection for HTTP requests.
 - **[Incoming Webhook Security & Posture](WEBHOOK_RECEIVE.md)** – HMAC-SHA256 signature verification, 5-minute replay window, and CIDR allowed origins.
+- **[Rate Limit Response Headers Specification](RATE_LIMIT_HEADERS.md)** – technical specification, calculation rules, and concrete examples for `X-RateLimit-*` and `Retry-After` headers.
+

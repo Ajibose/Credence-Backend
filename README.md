@@ -606,6 +606,7 @@ For security policies, reporting, and architecture documentation:
 - **Security Architecture**: See [docs/security.md](docs/security.md) for details on the API key scope model, encrypted evidence storage, rate limiting, and dependency scanning SLAs.
 - **Canonical JWT Claims Reference**: See [docs/JWT_CLAIMS.md](docs/JWT_CLAIMS.md) for standard, custom, and impersonation JWT claims, headers, and consumer middleware.
 - **Rate Limiting Support & Operations**: See [docs/rate-limiting.md](docs/rate-limiting.md) for details on default tier rate limits, environment configuration, troubleshooting, and support FAQs.
+- **Rate Limit Response Headers**: See [docs/RATE_LIMIT_HEADERS.md](docs/RATE_LIMIT_HEADERS.md) for header semantics (`X-RateLimit-*`, `Retry-After`), calculation rules, and client integration examples.
 - **Evidence Upload Security**: See [docs/evidence-upload-security.md](docs/evidence-upload-security.md) for file upload security configurations, size/count limits, and magic number validations.
 - **Secret-Rotation Posture**: See [docs/SECRETS.md](docs/SECRETS.md) for where secrets live, rotation cadence, and blast radius of each credential type.
 - **Incoming Webhook Security & Posture**: See [docs/WEBHOOK_RECEIVE.md](docs/WEBHOOK_RECEIVE.md) for signature verification, 5-minute replay window tolerance, and CIDR allowed origins.
