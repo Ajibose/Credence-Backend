@@ -134,13 +134,30 @@ export const replayEventBodySchema = z
 export type ReplayEventBody = z.infer<typeof replayEventBodySchema>
 
 /**
- * Request body schema for replaying a failed webhook delivery
- * POST /api/admin/replay-webhook
+ * Request body schema for purging cache
+ * POST /api/admin/purge-cache
  */
-export const replayWebhookBodySchema = z
+export const purgeCacheBodySchema = z
   .object({
-    id: z.string().min(1, 'id is required'),
+    namespace: z.string().min(1, 'namespace is required'),
+    key: z.string().optional(),
+    pattern: z.string().optional(),
   })
   .strict()
 
-export type ReplayWebhookBody = z.infer<typeof replayWebhookBodySchema>
+/**
+ * Response schema for POST /api/admin/purge-cache
+ */
+export const purgeCacheResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  data: z.object({
+    namespace: z.string(),
+    clearedCount: z.number(),
+  }),
+})
+
+export type PurgeCacheBody = z.infer<typeof purgeCacheBodySchema>
+export type PurgeCacheResponse = z.infer<typeof purgeCacheResponseSchema>
+
+

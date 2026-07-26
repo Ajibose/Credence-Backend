@@ -36,10 +36,11 @@ import {
   revokeApiKeyBodySchema,
   issueImpersonationTokenBodySchema,
   replayEventBodySchema,
-  rotateSigningKeyBodySchema,
+  purgeCacheBodySchema,
 } from '../../schemas/admin.js'
-import { keyManager } from '../../services/keyManager/index.js'
-import type { ReplayEventBody } from '../../schemas/admin.js'
+import type { ReplayEventBody, PurgeCacheBody } from '../../schemas/admin.js'
+import { cache } from '../../cache/redis.js'
+import { invalidateCache, invalidatePattern } from '../../cache/invalidation.js'
 import { z } from 'zod'
 import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
 import { validateConfig, ConfigValidationError } from "../../config/index.js";
@@ -48,6 +49,7 @@ import dotenv from "dotenv";
 import { WebhookService } from "../../services/webhooks/service.js";
 import { PostgresWebhookRepository } from "../../db/repositories/webhookRepository.js";
 import { PostgresDlqStore } from "../../services/webhooks/postgresDlqStore.js";
+
 
 /**
  * Create the admin router with role and user management endpoints
@@ -202,56 +204,60 @@ export function createAdminRouter(): Router {
   router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
 
   /**
-   * POST /api/admin/rotate-signing-key
-   * Rotate the active JWT signing key and retain the previous key in the grace window.
+   * POST /api/admin/purge-cache
+   * Purges cache by key or pattern in a specified namespace; audit-logged.
    */
-  router.post('/rotate-signing-key', requireUserAuth, requireAdminRole, validate({ body: rotateSigningKeyBodySchema }), async (req: Request, res: Response, next) => {
-    try {
-      const authReq = req as AuthenticatedRequest
-      const user = authReq.user!
-      const requestId = (req as any).requestId
-
+  router.post(
+    '/purge-cache',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: purgeCacheBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
       try {
-        await keyManager.initialize()
-        const result = await keyManager.rotate()
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { namespace, key, pattern } = req.body as PurgeCacheBody
 
-        await auditLogService.logAction(
-          user.tenantId,
-          user.id,
-          user.email,
-          AuditAction.ROTATE_SIGNING_KEY,
-          'signing_key',
-          result.newKid,
-          {
-            rotatedFromKid: result.retiredKid,
-            rotatedToKid: result.newKid,
-            threatMitigated: 'prevents stale JWT verification keys from being silently reused beyond the grace window',
-          },
+        let clearedCount = 0
+        if (pattern) {
+          clearedCount = await invalidatePattern(namespace, pattern)
+        } else if (key) {
+          const success = await invalidateCache(namespace, key)
+          clearedCount = success ? 1 : 0
+        } else {
+          clearedCount = await cache.clearNamespace(namespace)
+        }
+
+        // Audit log the purge action
+        void auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.PURGE_CACHE,
+          namespace,
+          undefined,
+          { namespace, key, pattern, clearedCount },
           undefined,
           undefined,
           req.ip,
           requestId
         )
 
-        res.status(200).json({ success: true, data: { activeKid: result.newKid, retiredKid: result.retiredKid } })
-        return
-      } catch (error) {
-        if (error instanceof Error && error.message.includes('KeyManager not initialized')) {
-          const err = new AppError(
-            'JWT signing key rotation is unavailable because the key manager is not initialized',
-            ErrorCode.SERVICE_UNAVAILABLE,
-            503,
-            { reason: 'key_manager_uninitialized' }
-          )
-          next(err)
-          return
-        }
-        throw error
+        res.status(200).json({
+          success: true,
+          message: `Cache purged for namespace '${namespace}'`,
+          data: {
+            namespace,
+            clearedCount,
+          },
+        })
+      } catch (err) {
+        next(err)
       }
-    } catch (error) {
-      next(error)
     }
-  })
+  );
+
 
   /**
    * POST /api/admin/keys/revoke
