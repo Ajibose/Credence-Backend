@@ -342,7 +342,7 @@ The backend implements a comprehensive timeout and retry strategy for all extern
 - Environment variable tuning guide
 - Operational runbook (symptom → diagnosis → tuning)
 
-For details on how deduplication keys are generated and how workers interact with the table to guarantee exactly-once processing, see **[docs/deduplication-policy.md](docs/deduplication-policy.md)**.
+For diagnosing a backed-up outbox event queue specifically, see **[docs/RUNBOOK_QUEUE_LAG.md](docs/RUNBOOK_QUEUE_LAG.md)**.
 
 ## Horizon Listener
 
