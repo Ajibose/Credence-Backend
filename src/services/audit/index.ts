@@ -270,3 +270,5 @@ export type {
   AuditLogFilters,
   ChainVerificationResult,
 } from './types.js'
+export * from './serviceAccountAudit.js'
+
