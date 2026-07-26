@@ -535,6 +535,8 @@ After running `npm run build`, migrations are executed from `dist/migrations/`.
 5. **Create new migrations** for schema changes
 6. **Back up production database** before running migrations
 
+For large data migrations or backfills, you can track their execution in real-time. See **[docs/backfill-progress.md](docs/backfill-progress.md)**.
+
 ## Tech
 
 - Node.js
