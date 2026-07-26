@@ -269,6 +269,36 @@ describe('validateConfig – invalid values', () => {
   })
 })
 
+// ─── Database replica pool config (#887) ─────────────────────────────────────
+
+describe('validateConfig – database replica pool', () => {
+  it('falls back replicaPool.max to DB_POOL_MAX when DB_REPLICA_POOL_MAX is unset', () => {
+    const config = validateConfig(validEnv({ DB_POOL_MAX: '35' }))
+    expect(config.db.replicaPool.max).toBe(35)
+  })
+
+  it('uses DB_REPLICA_POOL_MAX when explicitly set, independent of DB_POOL_MAX', () => {
+    const config = validateConfig(validEnv({ DB_POOL_MAX: '20', DB_REPLICA_POOL_MAX: '8' }))
+    expect(config.db.pool.max).toBe(20)
+    expect(config.db.replicaPool.max).toBe(8)
+  })
+
+  it('rejects a DB_REPLICA_POOL_MAX outside the 1-200 range (failure mode)', () => {
+    expect(() => validateConfig(validEnv({ DB_REPLICA_POOL_MAX: '0' }))).toThrow(ConfigValidationError)
+    expect(() => validateConfig(validEnv({ DB_REPLICA_POOL_MAX: '500' }))).toThrow(ConfigValidationError)
+  })
+
+  it('defaults maxReplicaLagMs to 1000ms when MAX_REPLICA_LAG_MS is unset', () => {
+    const config = validateConfig(validEnv())
+    expect(config.db.maxReplicaLagMs).toBe(1000)
+  })
+
+  it('honors an explicit MAX_REPLICA_LAG_MS override', () => {
+    const config = validateConfig(validEnv({ MAX_REPLICA_LAG_MS: '2500' }))
+    expect(config.db.maxReplicaLagMs).toBe(2500)
+  })
+})
+
 // ─── ConfigValidationError ───────────────────────────────────────────────────
 
 describe('ConfigValidationError', () => {

@@ -151,6 +151,7 @@ The application requires the following key environment variables, validated at s
 |----------|-------------|----------|
 | `DATABASE_URL` | PostgreSQL connection string | **Yes** |
 | `DB_REPLICA_URL` | PostgreSQL connection string for the read replica | No (Falls back to primary) |
+| `DB_REPLICA_POOL_MAX` | Max connections in the read-replica pool | No (Falls back to `DB_POOL_MAX`) |
 | `MAX_REPLICA_LAG_MS` | Max acceptable lag for replica reads | No (Default: 1000) |
 | `REDIS_URL` | Redis connection string | **Yes** |
 | `JWT_SECRET` | Secret for signing/verifying JWTs | **Yes** |

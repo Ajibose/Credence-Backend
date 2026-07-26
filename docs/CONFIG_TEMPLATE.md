@@ -55,6 +55,8 @@ At startup the app parses `process.env` through a Zod schema (`envSchema` in
 | `DB_POOL_CONNECTION_TIMEOUT_MS` | `5000` | 1000–30000 | Wait for a free connection before erroring. |
 | `DB_STATEMENT_TIMEOUT_MS` | `30000` | ≥ 0 | Per-statement timeout; kills runaway queries. |
 | `DB_WORKER_POOL_MAX` | `5` | 1–50 | Separate pool for background jobs. |
+| `DB_REPLICA_POOL_MAX` | `DB_POOL_MAX` | 1–200 (optional) | Max connections in the read-replica pool; falls back to `DB_POOL_MAX` when unset. |
+| `MAX_REPLICA_LAG_MS` | `1000` | ≥ 0 | Max replication lag before `withReplica()` falls back to the primary pool. |
 | `DB_LOCK_TIMEOUT_READONLY_MS` | `1000` | 100–30000 | Lock timeout for read-only queries. See [lock-timeout-configuration.md](lock-timeout-configuration.md). |
 | `DB_LOCK_TIMEOUT_DEFAULT_MS` | `2000` | 100–30000 | Standard read-modify-write operations. |
 | `DB_LOCK_TIMEOUT_CRITICAL_MS` | `10000` | 100–60000 | Critical flows that may wait longer. |
