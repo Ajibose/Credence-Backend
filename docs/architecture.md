@@ -25,6 +25,7 @@ graph TD
         Listener -->|gRPC| gRPC_S
         Scheduler[Job Scheduler] -->|Trigger| Rep
         Scheduler -->|Trigger| Webhooks[Webhook Dispatcher]
+        Sweeper[Expired Sessions Sweeper] -->|Prune| DB
     end
 
     subgraph "Data Layer"

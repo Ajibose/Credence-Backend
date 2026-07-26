@@ -103,6 +103,20 @@ At startup the app parses `process.env` through a Zod schema (`envSchema` in
 | `REQUEST_SNAPSHOT_CLEANUP_INTERVAL_MS` | `86400000` | ≥ 60000 |
 | `REQUEST_SNAPSHOT_CLEANUP_ENABLED` | `true` | |
 
+## Expired sessions sweeper
+
+Periodically deletes `idempotent_job_attempts` rows whose `expires_at` has
+passed, preventing unbounded table growth.
+
+| Variable | Default | Constraint | Notes |
+| --- | --- | --- | --- |
+| `SESSION_TTL_SECONDS` | `86400` | 60–2592000 | TTL (seconds) applied to new session rows. The sweeper removes rows whose `expires_at` ≤ NOW(). |
+| `SESSION_SWEEP_INTERVAL_MS` | `3600000` | ≥ 60000 | How often (ms) the sweeper runs. |
+
+The sweeper is started automatically at application boot when `DATABASE_URL` is
+set. It follows the same batch-delete pattern as the idempotency-key sweeper
+and is stopped during graceful shutdown.
+
 ## Rate limiting
 
 | Variable | Default | Constraint | Notes |

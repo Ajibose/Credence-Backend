@@ -27,6 +27,12 @@ export const PG_STAT_ACTIVITY_SNAPSHOT_INTERVAL_MS = 60_000
 /** Retention window for persisted pg_stat_activity snapshots. */
 export const PG_STAT_ACTIVITY_SNAPSHOT_RETENTION_HOURS = 24
 
+/** Default session TTL in seconds (24 hours). Override via SESSION_TTL_SECONDS. */
+export const SESSION_TTL_SECONDS = 86_400
+
+/** Default interval (ms) between expired-sessions sweeper runs (1 hour). Override via SESSION_SWEEP_INTERVAL_MS. */
+export const SESSION_SWEEP_INTERVAL_MS = 3_600_000
+
 /**
  * Duration in milliseconds after a notification provider's cooldown expires
  * during which the provider is treated as "recovering" rather than fully healthy.

@@ -487,38 +487,19 @@ export const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().min(60000)), // minimum 1 minute
 
-  // ── Per-tenant defaults ──────────────────────────────────────────────────────
-
-  /** Default rate-limit (max requests) per tenant when no DB override exists. */
-  TENANT_DEFAULT_RATE_LIMIT: z
+  // Expired-sessions sweeper
+  /** TTL in seconds for session rows (default: 86400 = 24 hours). */
+  SESSION_TTL_SECONDS: z
     .string()
-    .default('100')
+    .default('86400')
     .transform(Number)
-    .pipe(z.number().int().min(1)),
-  /** Default rate-limit window (seconds) per tenant when no DB override exists. */
-  TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC: z
+    .pipe(z.number().int().min(60).max(2592000)), // 1 min to 30 days
+  /** Interval in ms between expired-sessions sweeper runs (default: 3600000 = 1 hour). */
+  SESSION_SWEEP_INTERVAL_MS: z
     .string()
-    .default('60')
+    .default('3600000')
     .transform(Number)
-    .pipe(z.number().int().min(1).max(3600)),
-  /** Default per-tenant DB connection budget cap. */
-  TENANT_DEFAULT_CONNECTION_BUDGET: z
-    .string()
-    .default('5')
-    .transform(Number)
-    .pipe(z.number().int().min(1).max(200)),
-  /** Default monthly credits allocated to new tenants. */
-  TENANT_DEFAULT_MONTHLY_CREDITS: z
-    .string()
-    .default('10000')
-    .transform(Number)
-    .pipe(z.number().int().min(0)),
-  /** Default low-credit threshold below which the system emits warnings. */
-  TENANT_DEFAULT_LOW_CREDIT_THRESHOLD: z
-    .string()
-    .default('100')
-    .transform(Number)
-    .pipe(z.number().int().min(0)),
+    .pipe(z.number().int().min(60000)), // minimum 1 minute
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -682,19 +663,11 @@ export interface Config {
     /** Interval in ms between sweeper cleanup runs. Default: 3600000 (1 h). */
     sweeperIntervalMs: number
   }
-  tenant: {
-    defaults: {
-      /** Default rate-limit (max requests) per tenant when no DB override exists. */
-      rateLimit: number
-      /** Default rate-limit window (seconds) per tenant when no DB override exists. */
-      rateLimitWindowSec: number
-      /** Default per-tenant DB connection budget cap. */
-      connectionBudget: number
-      /** Default monthly credits allocated to new tenants. */
-      monthlyCredits: number
-      /** Default low-credit threshold. */
-      lowCreditThreshold: number
-    }
+  sessionSweep: {
+    /** TTL in seconds for session rows. Default: 86400 (24 h). */
+    ttlSeconds: number
+    /** Interval in ms between sweeper runs. Default: 3600000 (1 h). */
+    sweepIntervalMs: number
   }
 }
 
@@ -909,14 +882,9 @@ function mapEnvToConfig(env: Env): Config {
       ttlSeconds: env.IDEMPOTENCY_TTL_SECONDS,
       sweeperIntervalMs: env.IDEMPOTENCY_SWEEPER_INTERVAL_MS,
     },
-    tenant: {
-      defaults: {
-        rateLimit: env.TENANT_DEFAULT_RATE_LIMIT,
-        rateLimitWindowSec: env.TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC,
-        connectionBudget: env.TENANT_DEFAULT_CONNECTION_BUDGET,
-        monthlyCredits: env.TENANT_DEFAULT_MONTHLY_CREDITS,
-        lowCreditThreshold: env.TENANT_DEFAULT_LOW_CREDIT_THRESHOLD,
-      },
+    sessionSweep: {
+      ttlSeconds: env.SESSION_TTL_SECONDS,
+      sweepIntervalMs: env.SESSION_SWEEP_INTERVAL_MS,
     },
   }
 
