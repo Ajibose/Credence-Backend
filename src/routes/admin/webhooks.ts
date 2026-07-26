@@ -4,6 +4,7 @@ import { PostgresWebhookRepository } from '../../db/repositories/webhookReposito
 import { pool } from '../../db/pool.js'
 import { AuthenticatedRequest, requireUserAuth, requireAdminRole, requireApiKey, ApiScope } from '../../middleware/auth.js'
 import { auditLogService } from '../../services/audit/index.js'
+import { sendError, ErrorCode } from '../../lib/errors.js'
 
 /**
  * Create the webhook admin router.
@@ -43,8 +44,7 @@ export function createWebhookAdminRouter(): Router {
         }
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      res.status(400).json({ error: message })
+      sendError(res, ErrorCode.VALIDATION_FAILED, err instanceof Error ? err.message : 'Unknown error')
     }
   })
 
@@ -69,8 +69,7 @@ export function createWebhookAdminRouter(): Router {
         message: 'Previous secret revoked successfully'
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error'
-      res.status(400).json({ error: message })
+      sendError(res, ErrorCode.VALIDATION_FAILED, err instanceof Error ? err.message : 'Unknown error')
     }
   })
 

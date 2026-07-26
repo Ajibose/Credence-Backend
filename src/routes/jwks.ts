@@ -1,5 +1,6 @@
 import { Router, type Request, type Response } from 'express'
 import { keyManager } from '../services/keyManager/index.js'
+import { sendError, ErrorCode } from '../lib/errors.js'
 
 /**
  * Creates the router for the JWK Set (JWKS) endpoint.
@@ -39,7 +40,7 @@ export function createJwksRouter(): Router {
         .set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60')
         .json(jwks)
     } catch {
-      res.status(503).json({ error: 'Key manager not initialized' })
+      sendError(res, ErrorCode.SERVICE_UNAVAILABLE, 'Key manager not initialized')
     }
   })
 

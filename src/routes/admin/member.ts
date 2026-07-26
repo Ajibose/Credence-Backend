@@ -37,6 +37,7 @@ import { auditLogService } from '../../services/audit/index.js'
 import type { MemberRole } from '../../services/members/types.js'
 import { MemberService } from '../../services/members/factory.ts'
 import { MemberRepository } from '../../repositories/member.repository.ts'
+import { sendError, ErrorCode } from '../../lib/errors.js'
 
 const VALID_MEMBER_ROLES: MemberRole[] = ['owner', 'admin', 'member']
 
@@ -75,11 +76,7 @@ export function createMembersRouter(): Router {
         pagination = parsePaginationParams(req.query as Record<string, unknown>, { defaultLimit: 50 })
       } catch (err) {
         if (err instanceof PaginationValidationError) {
-          res.status(400).json({
-            error: 'InvalidRequest',
-            message: 'Invalid pagination parameters',
-            details: err.details,
-          })
+          sendError(res, ErrorCode.VALIDATION_FAILED, 'Invalid pagination parameters', err.details)
           return
         }
         throw err
@@ -141,10 +138,7 @@ export function createMembersRouter(): Router {
 
 
       if (role && !VALID_MEMBER_ROLES.includes(role as MemberRole)) {
-        res.status(400).json({
-          error: 'InvalidRequest',
-          message: `Invalid role. Must be one of: ${VALID_MEMBER_ROLES.join(', ')}`,
-        })
+        sendError(res, ErrorCode.VALIDATION_FAILED, `Invalid role. Must be one of: ${VALID_MEMBER_ROLES.join(', ')}`)
         return
       }
 
@@ -159,10 +153,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isConflict = message.includes('already active')
-      res.status(isConflict ? 409 : 400).json({
-        error: isConflict ? 'Conflict' : 'BadRequest',
-        message,
-      })
+      const code = isConflict ? ErrorCode.CONFLICT : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -195,10 +187,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isNotFound = message.includes('not found')
-      res.status(isNotFound ? 404 : 400).json({
-        error: isNotFound ? 'NotFound' : 'BadRequest',
-        message,
-      })
+      const code = isNotFound ? ErrorCode.NOT_FOUND : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -226,10 +216,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isNotFound = message.includes('not found') || message.includes('already deleted')
-      res.status(isNotFound ? 404 : 400).json({
-        error: isNotFound ? 'NotFound' : 'BadRequest',
-        message,
-      })
+      const code = isNotFound ? ErrorCode.NOT_FOUND : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -257,14 +245,14 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       if (message.includes('already exists')) {
-        res.status(409).json({ error: 'Conflict', message })
+        sendError(res, ErrorCode.CONFLICT, message)
         return
       }
       if (message.includes('not found') || message.includes('already active')) {
-        res.status(404).json({ error: 'NotFound', message })
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return
       }
-      res.status(500).json({ error: 'InternalError', message })
+      sendError(res, ErrorCode.INTERNAL_SERVER_ERROR, message)
     }
   })
 

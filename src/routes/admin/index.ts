@@ -16,7 +16,7 @@ import {
 import { AdminService } from "../../services/admin/index.js";
 import { auditLogService, AuditAction } from "../../services/audit/index.js";
 import { impersonationService } from "../../services/impersonation/index.js";
-import { AppError, ErrorCode, ValidationError } from "../../lib/errors.js";
+import { AppError, ErrorCode, ValidationError, sendError } from "../../lib/errors.js";
 import type {
   AssignRoleRequest,
   RevokeApiKeyRequest,
@@ -151,7 +151,7 @@ export function createAdminRouter(): Router {
         validateConfig(candidateEnv as any);
       } catch (err: any) {
         if (err instanceof ConfigValidationError) {
-          res.status(400).json({ error: 'ConfigValidationError', message: 'Vault secrets validation failed', issues: err.issues });
+          sendError(res, ErrorCode.VALIDATION_FAILED, 'Vault secrets validation failed', err.issues)
           return;
         }
         throw err;
@@ -235,7 +235,7 @@ export function createAdminRouter(): Router {
       const body = req.body as Partial<IssueImpersonationTokenRequest>
 
       if (!body.targetUserId || !body.reason) {
-        res.status(400).json({ error: 'BadRequest', message: 'targetUserId and reason are required' })
+        sendError(res, ErrorCode.FIELD_REQUIRED, 'targetUserId and reason are required')
         return
       }
 
@@ -257,10 +257,10 @@ export function createAdminRouter(): Router {
       const message =
         error instanceof Error ? error.message : "Unknown error";
       if (/User not found/i.test(message)) {
-        res.status(404).json({ error: "NotFound", message });
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return;
       }
-      res.status(400).json({ error: "BadRequest", message });
+      sendError(res, ErrorCode.VALIDATION_FAILED, message)
     }
   });
 
@@ -276,7 +276,7 @@ export function createAdminRouter(): Router {
     const { tokenId } = req.params
 
     if (!tokenId) {
-      res.status(400).json({ error: 'InvalidRequest', message: 'tokenId is required' })
+      sendError(res, ErrorCode.FIELD_REQUIRED, 'tokenId is required')
       return
     }
 
@@ -286,10 +286,10 @@ export function createAdminRouter(): Router {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       if (/Token not found/i.test(message)) {
-        res.status(404).json({ error: 'NotFound', message })
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return
       }
-      res.status(400).json({ error: "BadRequest", message });
+      sendError(res, ErrorCode.VALIDATION_FAILED, message)
     }
   });
 
@@ -504,7 +504,7 @@ export function createAdminRouter(): Router {
 
         res.status(200).json({ success: true, data: result })
       } catch (error: any) {
-        res.status(400).json({ error: 'ReplayFailed', message: error.message })
+        sendError(res, ErrorCode.VALIDATION_FAILED, error.message)
       }
     }
   )
