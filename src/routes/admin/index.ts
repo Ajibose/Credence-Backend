@@ -36,13 +36,17 @@ import {
   revokeApiKeyBodySchema,
   issueImpersonationTokenBodySchema,
   replayEventBodySchema,
+  replayWebhookBodySchema,
 } from '../../schemas/admin.js'
-import type { ReplayEventBody } from '../../schemas/admin.js'
+import type { ReplayEventBody, ReplayWebhookBody } from '../../schemas/admin.js'
 import { z } from 'zod'
 import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
 import { validateConfig, ConfigValidationError } from "../../config/index.js";
 import fs from "fs";
 import dotenv from "dotenv";
+import { WebhookService } from "../../services/webhooks/service.js";
+import { PostgresWebhookRepository } from "../../db/repositories/webhookRepository.js";
+import { PostgresDlqStore } from "../../services/webhooks/postgresDlqStore.js";
 
 /**
  * Create the admin router with role and user management endpoints
@@ -533,6 +537,41 @@ export function createAdminRouter(): Router {
           admin.email,
           admin.tenantId,
           req.ip,
+          requestId
+        )
+
+        res.status(200).json(result)
+      } catch (error: any) {
+        next(error)
+      }
+    }
+  )
+
+  /**
+   * POST /api/admin/replay-webhook
+   * 
+   * Replay a specific failed webhook delivery from the DLQ on demand.
+   * Audit-logged via WebhookService.replayWebhook.
+   */
+  router.post(
+    '/replay-webhook',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: replayWebhookBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { id } = req.body as ReplayWebhookBody
+
+        const webhookStore = new PostgresWebhookRepository(pool)
+        const dlqStore = new PostgresDlqStore(pool)
+        const webhookService = new WebhookService(webhookStore, undefined, dlqStore, auditLogService)
+
+        const result = await webhookService.replayWebhook(
+          id,
+          { id: admin.id, email: admin.email, tenantId: admin.tenantId },
           requestId
         )
 
