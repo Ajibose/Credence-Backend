@@ -4,6 +4,7 @@ import type { HealthProbe } from '../services/health/index.js'
 import type { RedisClient } from '../cache/redis.js'
 import { WorkerHealthService } from '../services/workerHealth.js'
 import { getVersionMetadata } from '../utils/version.js'
+import { sendError, ErrorCode } from '../lib/errors.js'
 
 export interface HealthRouterOptions {
   /** DB probe; when omitted, db is reported as not_configured. */
@@ -119,10 +120,7 @@ export function createHealthRouter(options: HealthRouterOptions = {}): Router {
         const result = await workerHealthService.getWorkerStatuses()
         res.status(200).json(result)
       } catch {
-        res.status(503).json({
-          workers: [],
-          error: 'Unable to query worker health',
-        })
+        sendError(res, ErrorCode.SERVICE_UNAVAILABLE, 'Unable to query worker health')
       }
     })
   }

@@ -4,6 +4,7 @@ import { WebhookRotationService, WebhookNotFoundError } from '../services/webhoo
 import type { WebhookStore } from '../services/webhooks/types.js'
 import { AuditAction, type AuditLogService } from '../services/audit/index.js'
 import { getTenantId, setTenantId } from '../utils/tenantContext.js'
+import { sendError, ErrorCode } from '../lib/errors.js'
 
 /**
  * Create the webhook management router.
@@ -86,18 +87,11 @@ export function createWebhookRouter(store: WebhookStore, audit: AuditLogService)
         })
       } catch (err) {
         if (err instanceof WebhookNotFoundError) {
-          res.status(404).json({
-            error: 'NotFound',
-            message: err.message,
-          })
+          sendError(res, ErrorCode.NOT_FOUND, err.message)
           return
         }
 
-        const message = err instanceof Error ? err.message : 'Unknown error'
-        res.status(500).json({
-          error: 'InternalError',
-          message,
-        })
+        sendError(res, ErrorCode.INTERNAL_SERVER_ERROR, err instanceof Error ? err.message : 'Unknown error')
       } finally {
         // Restore original tenant context
         if (!originalTenant) {

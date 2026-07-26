@@ -7,6 +7,31 @@ servers:
   - url: https://api.credence.org/v1
 components:
   schemas:
+    ErrorResponse:
+      type: object
+      description: Standard error envelope returned by all API error responses. Consumers should branch on `code` (or the `error_code` alias) rather than parsing the `error` message.
+      properties:
+        error:
+          type: string
+          description: Human-readable error message. In production, this is always the catalog default message; in non-production environments it may contain the original error detail.
+          example: Validation failed
+        code:
+          type: string
+          description: Machine-readable error code from the centralized error catalog. Stable across releases.
+          example: validation_failed
+        error_code:
+          type: string
+          description: Alias of `code`. Present for backward compatibility; branch on `code`.
+          example: validation_failed
+        details:
+          type: array
+          description: Optional structured details (e.g., Zod issue list). Omitted in production to prevent PII leakage.
+          items:
+            type: object
+      required:
+        - error
+        - code
+        - error_code
     addressSchema:
       def:
         type: string

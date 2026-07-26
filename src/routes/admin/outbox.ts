@@ -11,6 +11,7 @@ import {
   requireUserAuth,
 } from '../../middleware/auth.js'
 import { auditLogService, AuditAction } from '../../services/audit/index.js'
+import { sendError, ErrorCode } from '../../lib/errors.js'
 
 const quarantineReasons = new Set<OutboxQuarantineReason>([
   'malformed_json',
@@ -58,7 +59,7 @@ export function createOutboxAdminRouter(repository = new OutboxRepository()): Ro
         })
         const reason = typeof req.query.reason === 'string' ? req.query.reason : undefined
         if (reason && !quarantineReasons.has(reason as OutboxQuarantineReason)) {
-          res.status(400).json({ error: 'InvalidReason', message: `Unsupported quarantine reason: ${reason}` })
+          sendError(res, ErrorCode.VALIDATION_FAILED, `Unsupported quarantine reason: ${reason}`)
           return
         }
 
@@ -104,7 +105,7 @@ export function createOutboxAdminRouter(repository = new OutboxRepository()): Ro
         const payload = req.body?.payload
         const requestId = (req as any).requestId
         if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
-          res.status(400).json({ error: 'InvalidPayload', message: 'payload must be a JSON object' })
+          sendError(res, ErrorCode.VALIDATION_FAILED, 'payload must be a JSON object')
           return
         }
 
@@ -115,7 +116,7 @@ export function createOutboxAdminRouter(repository = new OutboxRepository()): Ro
 
         const newEventId = await repository.reinjectQuarantined(pool, id, payload as Record<string, unknown>, actorId)
         if (!newEventId) {
-          res.status(404).json({ error: 'NotFound', message: 'Quarantined event not found or already reinjected' })
+          sendError(res, ErrorCode.NOT_FOUND, 'Quarantined event not found or already reinjected')
           return
         }
 
