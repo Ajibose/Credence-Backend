@@ -336,91 +336,35 @@ describe('envSchema', () => {
   })
 })
 
-// ─── Tenant defaults ──────────────────────────────────────────────────────────
+// ─── Bond / attestation cache TTL ────────────────────────────────────────────
 
-describe('validateConfig – tenant defaults', () => {
-  it('uses default tenant config values when no tenant env vars are provided', () => {
+describe('validateConfig – bond/attestation cache TTL', () => {
+  it('defaults bondCache.ttl and attestationCache.ttl to 300 seconds', () => {
     const config = validateConfig(validEnv())
 
-    expect(config.tenant.defaults.rateLimit).toBe(100)
-    expect(config.tenant.defaults.rateLimitWindowSec).toBe(60)
-    expect(config.tenant.defaults.connectionBudget).toBe(5)
-    expect(config.tenant.defaults.monthlyCredits).toBe(10000)
-    expect(config.tenant.defaults.lowCreditThreshold).toBe(100)
+    expect(config.bondCache.ttl).toBe(300)
+    expect(config.attestationCache.ttl).toBe(300)
   })
 
-  it('accepts custom TENANT_DEFAULT_RATE_LIMIT', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_RATE_LIMIT: '250' }))
-    expect(config.tenant.defaults.rateLimit).toBe(250)
+  it('applies BOND_CACHE_TTL_SECONDS and ATTESTATION_CACHE_TTL_SECONDS overrides', () => {
+    const config = validateConfig(validEnv({
+      BOND_CACHE_TTL_SECONDS: '900',
+      ATTESTATION_CACHE_TTL_SECONDS: '120',
+    }))
+
+    expect(config.bondCache.ttl).toBe(900)
+    expect(config.attestationCache.ttl).toBe(120)
   })
 
-  it('accepts custom TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC: '120' }))
-    expect(config.tenant.defaults.rateLimitWindowSec).toBe(120)
-  })
-
-  it('accepts custom TENANT_DEFAULT_CONNECTION_BUDGET', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_CONNECTION_BUDGET: '10' }))
-    expect(config.tenant.defaults.connectionBudget).toBe(10)
-  })
-
-  it('accepts custom TENANT_DEFAULT_MONTHLY_CREDITS', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_MONTHLY_CREDITS: '50000' }))
-    expect(config.tenant.defaults.monthlyCredits).toBe(50000)
-  })
-
-  it('accepts custom TENANT_DEFAULT_LOW_CREDIT_THRESHOLD', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_LOW_CREDIT_THRESHOLD: '500' }))
-    expect(config.tenant.defaults.lowCreditThreshold).toBe(500)
-  })
-
-  it('allows zero for TENANT_DEFAULT_MONTHLY_CREDITS', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_MONTHLY_CREDITS: '0' }))
-    expect(config.tenant.defaults.monthlyCredits).toBe(0)
-  })
-
-  it('allows zero for TENANT_DEFAULT_LOW_CREDIT_THRESHOLD', () => {
-    const config = validateConfig(validEnv({ TENANT_DEFAULT_LOW_CREDIT_THRESHOLD: '0' }))
-    expect(config.tenant.defaults.lowCreditThreshold).toBe(0)
-  })
-})
-
-// ─── Tenant defaults validation ───────────────────────────────────────────────
-
-describe('validateConfig – tenant defaults validation', () => {
-  it('rejects TENANT_DEFAULT_RATE_LIMIT less than 1', () => {
+  it('rejects a non-numeric BOND_CACHE_TTL_SECONDS', () => {
     expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_RATE_LIMIT: '0' })),
+      validateConfig(validEnv({ BOND_CACHE_TTL_SECONDS: 'not-a-number' })),
     ).toThrow(ConfigValidationError)
   })
 
-  it('rejects TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC less than 1', () => {
+  it('rejects an out-of-range ATTESTATION_CACHE_TTL_SECONDS', () => {
     expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_RATE_LIMIT_WINDOW_SEC: '0' })),
-    ).toThrow(ConfigValidationError)
-  })
-
-  it('rejects TENANT_DEFAULT_CONNECTION_BUDGET less than 1', () => {
-    expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_CONNECTION_BUDGET: '0' })),
-    ).toThrow(ConfigValidationError)
-  })
-
-  it('rejects TENANT_DEFAULT_CONNECTION_BUDGET above 200', () => {
-    expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_CONNECTION_BUDGET: '201' })),
-    ).toThrow(ConfigValidationError)
-  })
-
-  it('rejects non-integer TENANT_DEFAULT_RATE_LIMIT', () => {
-    expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_RATE_LIMIT: 'abc' })),
-    ).toThrow(ConfigValidationError)
-  })
-
-  it('rejects non-integer TENANT_DEFAULT_LOW_CREDIT_THRESHOLD', () => {
-    expect(() =>
-      validateConfig(validEnv({ TENANT_DEFAULT_LOW_CREDIT_THRESHOLD: 'not-a-number' })),
+      validateConfig(validEnv({ ATTESTATION_CACHE_TTL_SECONDS: '999999' })),
     ).toThrow(ConfigValidationError)
   })
 })
