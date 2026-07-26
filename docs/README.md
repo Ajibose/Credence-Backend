@@ -10,4 +10,6 @@ This directory contains additional documentation for the Credence Backend.
 - **[Idempotency Guard](IDEMPOTENCY_GUARD.md)** – replay protection for HTTP requests.
 - **[Incoming Webhook Security & Posture](WEBHOOK_RECEIVE.md)** – HMAC-SHA256 signature verification, 5-minute replay window, and CIDR allowed origins.
 - **[Event Ordering Guarantees](EVENT_ORDERING.md)** – ordering guarantees and guidelines for downstream consumers.
+- **[Environment Deployment Guide](DEPLOY.md)** – step-by-step deployment instructions for development, staging, and production environments.
+
 

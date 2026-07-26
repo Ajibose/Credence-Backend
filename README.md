@@ -325,6 +325,7 @@ The Grafana dashboard includes:
 
 The service deploys to Kubernetes as a zero-downtime rolling update (`k8s/deployment.yaml`). See:
 
+- **[docs/DEPLOY.md](docs/DEPLOY.md)** — environment-specific (development, staging, production) deployment guide, prerequisites, and verification steps.
 - **[docs/k8s.md](docs/k8s.md)** — manifests, ConfigMap/Secret keys, and the first-time `kubectl apply -k k8s/` quick start.
 - **[docs/deployment-cutover.md](docs/deployment-cutover.md)** — the cutover sequence, exactly what the readiness/liveness/startup probes check (and their timing), and how to detect a bad rollout and trigger `kubectl rollout undo`.
 
