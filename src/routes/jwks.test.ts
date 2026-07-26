@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import express, { type Express } from 'express'
 import request from 'supertest'
-import { createJwksRouter } from './jwks.js'
+import { createJwksRouter, type JwksRouterOptions } from './jwks.js'
 import { keyManager } from '../services/keyManager/index.js'
 
-function buildApp(): Express {
+function buildApp(options?: JwksRouterOptions): Express {
   const app = express()
-  app.use('/.well-known/jwks.json', createJwksRouter())
+  app.use('/.well-known/jwks.json', createJwksRouter(options))
   return app
 }
 
@@ -72,9 +72,24 @@ describe('GET /.well-known/jwks.json', () => {
     }
   })
 
-  it('sets Cache-Control header with max-age=600', async () => {
+  it('sets Cache-Control header with max-age=300 by default', async () => {
     const res = await request(app).get('/.well-known/jwks.json')
+    expect(res.headers['cache-control']).toContain('max-age=300')
+    expect(res.headers['cache-control']).toContain('stale-while-revalidate=60')
+  })
+
+  it('respects custom cacheMaxAgeSeconds option', async () => {
+    const customApp = buildApp({ cacheMaxAgeSeconds: 600 })
+    const res = await request(customApp).get('/.well-known/jwks.json')
     expect(res.headers['cache-control']).toContain('max-age=600')
+    expect(res.headers['cache-control']).toContain('stale-while-revalidate=60')
+  })
+
+  it('sets max-age=0 when cacheMaxAgeSeconds is 0', async () => {
+    const noCacheApp = buildApp({ cacheMaxAgeSeconds: 0 })
+    const res = await request(noCacheApp).get('/.well-known/jwks.json')
+    expect(res.headers['cache-control']).toContain('max-age=0')
+    expect(res.headers['cache-control']).toContain('stale-while-revalidate=60')
   })
 
   it('returns 503 if keyManager.getPublicJwks throws', async () => {

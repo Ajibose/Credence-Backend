@@ -35,6 +35,65 @@ import {
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
 import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
+ feat/request-attempt-header
+import {
+  bondPathParamsSchema,
+  attestationsPathParamsSchema,
+  createAttestationBodySchema,
+} from './schemas/index.js'
+import { compressionMiddleware, compressionMetricsMiddleware } from './middleware/compression.js'
+import { metricsMiddleware, register } from './middleware/metrics.js'
+import { createMembersRouter } from './routes/admin/member.ts'
+import { clientVersionEchoMiddleware } from './middleware/clientVersionEcho.js'
+import { requestAttemptEchoMiddleware } from './middleware/requestAttemptEcho.js'
+
+const app = express()
+
+// Request context and correlation IDs
+app.use(requestIdMiddleware)
+
+// Debugging echo
+app.use(clientVersionEchoMiddleware)
+app.use(requestAttemptEchoMiddleware)
+
+// Metrics endpoint for Prometheus
+app.get('/metrics', async (_req, res) => {
+  res.set('Content-Type', register.contentType)
+  res.end(await register.metrics())
+})
+
+app.use(metricsMiddleware)
+app.use(compressionMetricsMiddleware)
+app.use(compressionMiddleware)
+app.use(express.json())
+
+// JWT public key set — unauthenticated, per RFC 8414 / OIDC Discovery conventions
+let jwksCacheMaxAge = 300
+try {
+  jwksCacheMaxAge = validateConfig(process.env).jwt.jwksCacheMaxAgeSeconds
+} catch {
+  // default applies
+}
+app.use('/.well-known/jwks.json', createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }))
+
+// Health – full readiness check with per-dependency status
+const healthProbes = createDefaultProbes()
+
+// If Redis is configured, wire up a client for the worker-health endpoint
+let redisClient: import('./cache/redis.js').RedisClient | undefined
+if (process.env.REDIS_URL) {
+  try {
+    const conn = RedisConnection.getInstance()
+    // Best-effort connect — the endpoint degrades gracefully if Redis is down
+    conn.connect().catch(() => {})
+    redisClient = conn.getClient()
+  } catch {
+    // Redis may not be reachable at startup; worker-health will degrade gracefully
+  }
+}
+
+app.use('/api/health', createHealthRouter({ ...healthProbes, redisClient }))
+ main
 
 // Add missing imports used in the router
 import {
@@ -106,18 +165,7 @@ app.use(requestSizeLimitErrorHandler);
 app.use(tenantContextMiddleware);
 app.use(gracefulDegradeMiddleware);
 
-// ── Development response validation ────────────────────────────────────────
-// Automatically validates all API responses against the OpenAPI spec in
-// non-production environments. Fails loud (console.error) when a handler
-// emits a shape not declared in docs/openapi.yaml. Never blocks the response.
-// In production this is a complete no-op.
-const devResponseValidator = await createDevResponseValidator()
-if (devResponseValidator) {
-  app.use(devResponseValidator)
-}
-// ────────────────────────────────────────────────────────────────────────────
-
-app.use("/.well-known/jwks.json", createJwksRouter());
+app.use("/.well-known/jwks.json", createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }));
 
 const healthProbes = createDefaultProbes();
 app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));

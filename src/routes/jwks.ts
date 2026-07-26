@@ -2,6 +2,14 @@ import { Router, type Request, type Response } from 'express'
 import { keyManager } from '../services/keyManager/index.js'
 import { sendError, ErrorCode } from '../lib/errors.js'
 
+export interface JwksRouterOptions {
+  /**
+   * Max-age (seconds) for the Cache-Control header on the JWKS endpoint.
+   * Defaults to 300 (5 minutes).
+   */
+  cacheMaxAgeSeconds?: number
+}
+
 /**
  * Creates the router for the JWK Set (JWKS) endpoint.
  *
@@ -25,11 +33,12 @@ import { sendError, ErrorCode } from '../lib/errors.js'
  * tokens whose `exp` or `iat` values differ slightly due to clock drift.
  *
  * ## Caching
- * The response includes `Cache-Control: public, max-age=600, stale-while-revalidate=60`.
+ * The response includes `Cache-Control: public, max-age=<cacheMaxAgeSeconds>, stale-while-revalidate=60`.
  * Consumers caching this response should re-fetch when they encounter an unknown
  * `kid` in a JWT header, as a rotation may have occurred.
  */
-export function createJwksRouter(): Router {
+export function createJwksRouter(options?: JwksRouterOptions): Router {
+  const cacheMaxAge = options?.cacheMaxAgeSeconds ?? 300
   const router = Router()
 
   router.get('/', async (_req: Request, res: Response) => {
@@ -37,7 +46,7 @@ export function createJwksRouter(): Router {
       const jwks = await keyManager.getPublicJwks()
       res
         .status(200)
-        .set('Cache-Control', 'public, max-age=600, stale-while-revalidate=60')
+        .set('Cache-Control', `public, max-age=${cacheMaxAge}, stale-while-revalidate=60`)
         .json(jwks)
     } catch {
       sendError(res, ErrorCode.SERVICE_UNAVAILABLE, 'Key manager not initialized')

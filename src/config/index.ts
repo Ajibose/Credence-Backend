@@ -169,6 +169,16 @@ export const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().nonnegative()),
 
+  /**
+   * Max-age (seconds) for the Cache-Control header on the JWKS endpoint.
+   * Default: 300 (5 minutes).
+   */
+  JWKS_CACHE_MAX_AGE_SECONDS: z
+    .string()
+    .default('300')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
+
   // JWT key rotation — private key source
   KEY_PRIVATE_PEM: z.string().optional(),
   KEY_INITIAL_KID: z.string().optional(),
@@ -571,6 +581,8 @@ export interface Config {
     privateKeyPem?: string
     /** Optional kid assigned to the key loaded from privateKeyPem. */
     initialKid?: string
+    /** Max-age (seconds) for the JWKS endpoint Cache-Control header. */
+    jwksCacheMaxAgeSeconds: number
   }
   features: {
     trustScoring: boolean
@@ -796,6 +808,7 @@ function mapEnvToConfig(env: Env): Config {
       clockSkewSeconds: env.KEY_CLOCK_SKEW_SECONDS,
       privateKeyPem: env.KEY_PRIVATE_PEM,
       initialKid: env.KEY_INITIAL_KID,
+      jwksCacheMaxAgeSeconds: env.JWKS_CACHE_MAX_AGE_SECONDS,
     },
     features: {
       trustScoring: env.ENABLE_TRUST_SCORING,
