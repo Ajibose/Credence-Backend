@@ -143,6 +143,7 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 | `npm run build`           | Compile TypeScript                         |
 | `npm start`               | Run compiled `dist/`                       |
 | `npm run lint`            | Run ESLint                                 |
+| `npm run lint:fix`        | Run ESLint and auto-fix violations         |
 | `npm test`                | Run test suite (vitest)                    |
 | `npm run test:watch`      | Run tests in watch mode                    |
 | `npm run test:coverage`   | Run tests with coverage                    |
@@ -151,6 +152,37 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 | `npm run migrate`         | Run pending migrations (CI/production)     |
 | `npm run migrate:down`    | Rollback last migration                    |
 | `npm run migrate:dry-run` | Preview pending migrations without running |
+
+## Developer Setup
+
+### Lint on save (VS Code)
+
+The repository ships with `.vscode/settings.json` and `.vscode/extensions.json` so ESLint auto-fixes your code every time you save a TypeScript file — no extra configuration needed.
+
+**Prerequisites:** Install the recommended extension when VS Code prompts you, or run:
+
+```
+Extensions: Show Recommended Extensions   # Ctrl+Shift+P → type "Show Recommended"
+```
+
+The extension ID is `dbaeumer.vscode-eslint`.
+
+**How it works:**
+
+- `.vscode/settings.json` sets `editor.codeActionsOnSave` → `source.fixAll.eslint: "explicit"`, which triggers ESLint's `--fix` pass on every explicit save (`Ctrl+S` / `⌘S`).
+- `eslint.useFlatConfig: true` tells the extension to use the project's `eslint.config.js` flat-config format.
+- `[typescript].editor.defaultFormatter` is set to the ESLint extension so format-on-save routes through ESLint rather than a separate formatter.
+
+**CLI equivalent** (safe to re-run, idempotent):
+
+```bash
+npm run lint        # check only — exits non-zero if there are errors
+npm run lint:fix    # check and auto-fix — writes changes in place
+```
+
+Both commands target `src/` and respect the ignore patterns in `eslint.config.js` (e.g. `dist/`, `**/*.test.ts`).
+
+---
 
 ## API (current)
 
