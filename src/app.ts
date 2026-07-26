@@ -21,6 +21,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
 import { createCostMeterMiddleware } from "./middleware/costMeter.js";
 import { validateConfig } from "./config/index.js";
+import { securityHeadersMiddleware } from "./middleware/securityHeaders.js";
 import { createAttestationRouter } from "./routes/attestations.js";
 import { tenantContextMiddleware } from './middleware/tenantContext.js'
 import {
@@ -59,6 +60,7 @@ try {
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig);
 
 app.use(requestIdMiddleware);
+app.use(securityHeadersMiddleware);
 
 app.get("/metrics", async (_req, res) => {
   res.set("Content-Type", register.contentType);
