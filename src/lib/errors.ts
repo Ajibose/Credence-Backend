@@ -167,3 +167,15 @@ export class RequestTooLargeError extends AppError {
     super(message, ErrorCodeRegistry.REQUEST_TOO_LARGE)
   }
 }
+
+/**
+ * Error thrown when a required security response header is absent.
+ */
+export class MissingSecurityHeaderError extends AppError {
+  constructor(
+    message: string = getErrorCatalogEntry(ErrorCodeRegistry.MISSING_SECURITY_HEADER).defaultMessage,
+    details?: unknown
+  ) {
+    super(message, ErrorCodeRegistry.MISSING_SECURITY_HEADER, undefined, details)
+  }
+}
