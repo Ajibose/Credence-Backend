@@ -365,6 +365,7 @@ The service includes a Redis-based caching layer with:
 - **TTL support** - Set expiration times on cached values
 - **Health checks** - Built-in Redis health monitoring
 - **Graceful fallback** - Continues working when Redis is unavailable
+- **Cache response header** - Appends `x-cache` header (`HIT`, `MISS`, or `STALE`) to responses for transparency
 
 See [docs/caching.md](./docs/caching.md) for detailed documentation.
 

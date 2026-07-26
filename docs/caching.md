@@ -321,6 +321,15 @@ const result = await singleflight.do('my-operation-key', async () => {
 })
 ```
 
+## Response Cache Headers (X-Cache)
+
+To aid debugging and provide client-side reasoning about cache performance, responses from cached endpoints will contain an `x-cache` header indicating the cache status:
+- `HIT` — The data was served entirely from the cache.
+- `MISS` — The data was not in the cache and had to be computed or fetched from the database.
+- `STALE` — The data was retrieved from the cache but was determined to be stale based on its age or timestamp indicators.
+
+This tracking is automatically managed by `cacheHeaderMiddleware` using asynchronous local storage context during request processing.
+
 ## Best Practices
 
 1. **Always set TTL** - Prevent memory leaks

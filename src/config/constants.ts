@@ -36,3 +36,6 @@ export const PG_STAT_ACTIVITY_SNAPSHOT_RETENTION_HOURS = 24
  * thundering herd against a just-recovered provider.
  */
 export const PROVIDER_RECOVERY_BUFFER_MS = 5_000
+
+/** Header indicating Cache HIT/MISS/STALE status on response. */
+export const HEADER_X_CACHE = 'x-cache'
