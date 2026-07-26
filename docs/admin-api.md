@@ -731,7 +731,49 @@ curl -X POST 'http://localhost:3000/api/admin/migrations/dry-run' \
 
 ---
 
+### Purge Cache
+
+Purges cached entries by key, pattern, or entire namespace. Every cache purge is audit-logged with the calling admin ID, target namespace, parameters, cleared count, and timestamp.
+
+**Endpoint:** `POST /api/admin/purge-cache`  
+**Authentication:** Admin Bearer Token (`requireUserAuth` + `requireAdminRole`)
+
+#### Request Body
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `namespace` | string | Yes | Cache namespace to target (e.g. `"attestation"`, `"bond"`, `"trust"`) |
+| `key` | string | No | Single cache key within namespace to invalidate |
+| `pattern` | string | No | Pattern to match keys against for bulk invalidation |
+
+Omit both `key` and `pattern` to purge all keys within the specified `namespace`.
+
+#### Example Request
+
+```bash
+curl -X POST 'http://localhost:3000/api/admin/purge-cache' \
+  -H "Authorization: Bearer <ADMIN_API_KEY_RAW>" \
+  -H "Content-Type: application/json" \
+  -d '{"namespace": "attestation", "key": "id:123"}'
+```
+
+#### Example Response (200 OK)
+
+```json
+{
+  "success": true,
+  "message": "Cache purged for namespace 'attestation'",
+  "data": {
+    "namespace": "attestation",
+    "clearedCount": 1
+  }
+}
+```
+
+---
+
 ## Troubleshooting
+
 
 
 ### Common Issues

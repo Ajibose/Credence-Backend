@@ -331,3 +331,18 @@ const result = await singleflight.do('my-operation-key', async () => {
 6. **Document TTLs** - Clear cache invalidation strategy
 7. **Size limits** - Avoid caching very large objects
 8. **Consistent patterns** - Standardize key naming
+
+## Admin Cache Purging Endpoint
+
+Operators can manually purge cache keys, patterns, or entire namespaces via the Admin API:
+
+```bash
+POST /api/admin/purge-cache
+Content-Type: application/json
+Authorization: Bearer <ADMIN_API_KEY_RAW>
+
+{"namespace": "attestation", "key": "id:123"}
+```
+
+For full request/response details and audit logging behavior, see [docs/admin-api.md](admin-api.md#purge-cache).
+
