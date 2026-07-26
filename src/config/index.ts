@@ -75,6 +75,30 @@ export const envSchema = z.object({
     .default('5')
     .transform(Number)
     .pipe(z.number().int().min(1).max(50)),
+  /**
+   * Maximum connections in the read-replica pool. Falls back to DB_POOL_MAX
+   * when unset, so a single knob resizes the primary pool and the replica
+   * pool together by default. Set explicitly if the replica node should run
+   * with a different connection budget than the primary (#887).
+   */
+  DB_REPLICA_POOL_MAX: z
+    .string()
+    .optional()
+    .transform((val) => (val !== undefined && val !== '' ? Number(val) : undefined))
+    .pipe(z.union([z.undefined(), z.number().int().min(1).max(200)])),
+  /**
+   * Maximum acceptable replication lag (ms) before withReplica() falls back
+   * to the primary pool. Default: 1000 ms.
+   *
+   * Deliberately kept without a DB_ prefix to match the existing documented
+   * name in docs/architecture.md — renaming would silently break any
+   * deployment that already sets this variable.
+   */
+  MAX_REPLICA_LAG_MS: z
+    .string()
+    .default('1000')
+    .transform(Number)
+    .pipe(z.number().int().min(0)),
   DB_LOCK_TIMEOUT_READONLY_MS: z
     .string()
     .default('1000')
@@ -470,6 +494,12 @@ export interface Config {
     workerPool: {
       max: number
     }
+    replicaPool: {
+      /** Maximum connections in the read-replica pool. Defaults to db.pool.max when DB_REPLICA_POOL_MAX is unset. */
+      max: number
+    }
+    /** Maximum acceptable replica lag (ms) before withReplica() falls back to the primary pool. */
+    maxReplicaLagMs: number
     /** Minimum query duration (ms) that triggers a slow-query log entry. 0 disables. */
     slowQueryThresholdMs: number
   }
@@ -683,6 +713,11 @@ function mapEnvToConfig(env: Env): Config {
       workerPool: {
         max: env.DB_WORKER_POOL_MAX,
       },
+      replicaPool: {
+        // Fall back to the primary pool size when not explicitly configured.
+        max: env.DB_REPLICA_POOL_MAX ?? env.DB_POOL_MAX,
+      },
+      maxReplicaLagMs: env.MAX_REPLICA_LAG_MS,
       slowQueryThresholdMs: env.SLOW_QUERY_THRESHOLD_MS,
     },
     redis: {

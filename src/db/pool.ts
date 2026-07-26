@@ -1,17 +1,20 @@
 import { Pool, type PoolClient, type QueryResult } from "pg";
-import dotenv from "dotenv";
 import { AppError, ErrorCode } from "../lib/errors.js";
 import { logger } from "../utils/logger.js";
 import { getTenantId } from "../utils/tenantContext.js";
 import { redact } from "../observability/redaction.js";
 import { LogEventType } from "../observability/logSchemas.js";
-
-dotenv.config();
+import { loadConfig } from "../config/index.js";
 
 /**
  * Parse a numeric environment variable with a fallback default.
  * Returns the fallback if the variable is missing or non-numeric.
  * @internal Exported for testing only.
+ * @deprecated Pool configuration is now sourced from the validated config
+ * module (DB_POOL_MAX, DB_WORKER_POOL_MAX, DB_REPLICA_POOL_MAX, etc. — see
+ * src/config/index.ts). Kept only for DB_TENANT_CONNECTION_BUDGET, which has
+ * no fixed default and is derived from POOL_MAX below. New pool settings
+ * should be added to the config module instead (#887).
  */
 export function envInt(key: string, fallback: number): number {
   const raw = process.env[key];
@@ -20,22 +23,28 @@ export function envInt(key: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
-const DB_URL = process.env.DB_URL;
-const POOL_MAX = envInt("DB_POOL_MAX", 20);
-const IDLE_TIMEOUT = envInt("DB_POOL_IDLE_TIMEOUT_MS", 300_000); // 5 minutes: kills idle connections to keep pool counts predictable
-const CONN_TIMEOUT = envInt("DB_POOL_CONNECTION_TIMEOUT_MS", 5_000);
-const STMT_TIMEOUT = envInt("DB_STATEMENT_TIMEOUT_MS", 30_000);
-const WORKER_MAX = envInt("DB_WORKER_POOL_MAX", 5);
+// Single source of truth for every pool tuning knob — validated once at
+// startup by src/config/index.ts rather than read ad hoc via process.env
+// throughout this module. See issue #887.
+const cfg = loadConfig();
+
+const DB_URL = cfg.db.url;
+const POOL_MAX = cfg.db.pool.max;
+const IDLE_TIMEOUT = cfg.db.pool.idleTimeoutMillis;
+const CONN_TIMEOUT = cfg.db.pool.connectionTimeoutMillis;
+const STMT_TIMEOUT = cfg.db.pool.statementTimeoutMs;
+const WORKER_MAX = cfg.db.workerPool.max;
+const REPLICA_MAX = cfg.db.replicaPool.max;
 
 /**
  * Minimum query duration (ms) that triggers a slow-query log entry with the
  * query's EXPLAIN plan attached. 0 disables slow-query logging entirely.
  * See docs/observability.md#slow-query-logging.
  */
-const SLOW_QUERY_THRESHOLD_MS = envInt("SLOW_QUERY_THRESHOLD_MS", 1_000);
+const SLOW_QUERY_THRESHOLD_MS = cfg.db.slowQueryThresholdMs;
 
 const DB_REPLICA_URL = process.env.DB_REPLICA_URL || DB_URL;
-const MAX_REPLICA_LAG_MS = envInt("MAX_REPLICA_LAG_MS", 1000);
+const MAX_REPLICA_LAG_MS = cfg.db.maxReplicaLagMs;
 const TENANT_CONNECTION_BUDGET = Math.max(1, Math.min(envInt("DB_TENANT_CONNECTION_BUDGET", Math.max(1, Math.floor(POOL_MAX / 4))), POOL_MAX));
 const tenantConnectionCounts = new Map<string, number>();
 
@@ -136,7 +145,7 @@ workerPool.on("error", (err) => {
  */
 export const replicaPool = withTenantConnectionBudget(new Pool({
   connectionString: DB_REPLICA_URL,
-  max: POOL_MAX,
+  max: REPLICA_MAX,
   idleTimeoutMillis: IDLE_TIMEOUT,
   connectionTimeoutMillis: CONN_TIMEOUT,
   options: `-c statement_timeout=${STMT_TIMEOUT}`,

@@ -383,8 +383,10 @@ try {
 | `ANALYTICS_REFRESH_CRON`      | No       | `*/5 * * * *` | Refresh cadence for analytics materialized view        |
 | `ANALYTICS_STALENESS_SECONDS` | No       | `300`         | Max acceptable analytics staleness before marked stale |
 | `DB_POOL_IDLE_TIMEOUT_MS`     | No       | `300000`      | Milliseconds a pooled connection may stay idle before being closed. Kills idle connections to keep pool counts predictable. |
-| `DB_POOL_MAX`                 | No       | `20`          | Maximum connections in the primary / replica pools     |
+| `DB_POOL_MAX`                 | No       | `20`          | Maximum connections in the primary pool                |
 | `DB_WORKER_POOL_MAX`          | No       | `5`           | Maximum connections in the background-worker pool      |
+| `DB_REPLICA_POOL_MAX`         | No       | `DB_POOL_MAX` | Maximum connections in the read-replica pool; falls back to `DB_POOL_MAX` when unset |
+| `MAX_REPLICA_LAG_MS`          | No       | `1000`        | Max replication lag (ms) before reads fall back to the primary pool |
 | `DB_POOL_CONNECTION_TIMEOUT_MS` | No     | `5000`        | Milliseconds to wait for an available connection       |
 | `DB_STATEMENT_TIMEOUT_MS`     | No       | `30000`       | Per-statement timeout; kills runaway queries           |
 
