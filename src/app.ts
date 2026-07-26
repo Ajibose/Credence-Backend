@@ -23,6 +23,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
 import { createCostMeterMiddleware } from "./middleware/costMeter.js";
 import { validateConfig } from "./config/index.js";
+import { securityHeadersMiddleware } from "./middleware/securityHeaders.js";
 import { createAttestationRouter } from "./routes/attestations.js";
 import { tenantContextMiddleware } from "./middleware/tenantContext.js";
 import { gracefulDegradeMiddleware } from "./middleware/gracefulDegrade.js";
@@ -74,13 +75,8 @@ try {
 
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig);
 
-let globalTimeoutMs: number;
-try {
-  globalTimeoutMs = validateConfig(process.env).timeouts.global;
-} catch {
-  globalTimeoutMs = 30000; // 30s default
-}
-const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
+app.use(requestIdMiddleware);
+app.use(securityHeadersMiddleware);
 
 app.use(requestIdMiddleware);
 app.use(timeoutBudgetMiddleware);

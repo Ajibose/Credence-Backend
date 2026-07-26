@@ -365,6 +365,19 @@ it('includes preload directive in the HSTS header in non-production environment'
       expect(response.headers['x-middleware-test']).toBe('passed')
       expect(response.headers['content-security-policy']).toBeDefined()
     })
+
+    it('prevents MIME-sniffing attacks with X-Content-Type-Options: nosniff', async () => {
+      app.use(securityHeadersMiddleware)
+      app.get('/api/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/api/test')
+      
+      // This is a negative test - it verifies the header IS present to prevent MIME-sniffing
+      expect(response.headers['x-content-type-options']).toBeDefined()
+      expect(response.headers['x-content-type-options']).toBe('nosniff')
+    })
   })
 
   describe('checkSecurityHeaders (negative test)', () => {
