@@ -23,11 +23,16 @@ import { keyManager } from "./services/keyManager/index.js";
 import { GracefulShutdownManager } from "./gracefulShutdown.js";
 import { FailedInboundEventsSweeper } from "./jobs/failedInboundEventsSweeper.js";
 import { PgStatActivitySnapshotJob } from "./jobs/pgStatActivitySnapshotJob.js";
+import {
+  LongTransactionReaper,
+  loadLongTransactionReaperConfig,
+  registerLongTransactionReaperMetrics,
+} from "./jobs/longTransactionReaper.js";
 import { loadFailedInboundSweeperConfig } from "./config/retention.js";
 import { getInvalidationBus } from "./cache/index.js";
 import { createWsSubscriptionServer } from "./routes/ws.js";
 import { impersonationService } from "./services/impersonation/index.js";
-import { recordOomEvent } from "./middleware/metrics.js";
+import { recordOomEvent, register } from "./middleware/metrics.js";
 import { logger } from "./utils/logger.js";
 
 // Outbox imports
@@ -48,6 +53,7 @@ let scheduler: AnalyticsRefreshScheduler | null = null;
 let outboxJob: OutboxJob | null = null;
 let failedInboundSweeper: FailedInboundEventsSweeper | null = null;
 let pgStatActivitySnapshotJob: PgStatActivitySnapshotJob | null = null;
+let longTransactionReaper: LongTransactionReaper | null = null;
 let shutdownManager: GracefulShutdownManager | null = null;
 let wss: ReturnType<typeof createWsSubscriptionServer> | null = null;
 let invalidationBus: ReturnType<typeof getInvalidationBus> | null = null;
@@ -280,6 +286,25 @@ if (process.env.NODE_ENV !== "test") {
       logger.error(`Failed to start Expired Sessions Sweeper: ${message}`, error);
     }
 
+    // Start Long Transaction Reaper (kills backends holding a transaction
+    // open past DB_LONG_TRANSACTION_MAX_AGE_MS to prevent lock/pool hold-off
+    // cascades; see src/jobs/longTransactionReaper.ts)
+    try {
+      const longTransactionReaperConfig = loadLongTransactionReaperConfig();
+      if (longTransactionReaperConfig.enabled) {
+        registerLongTransactionReaperMetrics(register);
+        longTransactionReaper = new LongTransactionReaper(pool, {
+          ...longTransactionReaperConfig,
+          logger: logger.info,
+        });
+        longTransactionReaper.start();
+        logger.info("[Main] Long Transaction Reaper started");
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logger.error(`Failed to start Long Transaction Reaper: ${message}`, error);
+    }
+
     // Start cache invalidation bus
     try {
       invalidationBus = getInvalidationBus();
@@ -310,6 +335,10 @@ if (process.env.NODE_ENV !== "test") {
         if (pgStatActivitySnapshotJob) {
           logger.info("[Main] Stopping pg_stat_activity Snapshot Job");
           pgStatActivitySnapshotJob.stop();
+        }
+        if (longTransactionReaper) {
+          logger.info("[Main] Stopping Long Transaction Reaper");
+          longTransactionReaper.stop();
         }
         return originalShutdown(signal ?? "SIGTERM");
       };
