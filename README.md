@@ -11,6 +11,7 @@ This service is part of [Credence](../README.md). It supports:
 - Redis-based caching layer
 - **Configurable lock timeouts** – Prevents indefinite waits on locked rows with policy-based timeouts and automatic retry
 - **Horizon listener / identity state sync** – Reconciles DB with on-chain bond state (see [Identity state sync](#identity-state-sync)).
+- **Shadow write mode for safe pipeline migration** – Validates new settlement pipeline by writing to both old and new simultaneously and comparing results in metrics (see [Shadow Write Mode](docs/SHADOW_WRITE_MODE.md))
 - Reputation engine (off-chain score from bond data) (future)
 
 ## Prerequisites
