@@ -213,4 +213,11 @@ export {
   type VersionResponse,
 } from './version.js'
 
+export {
+  cspReportSchema,
+  cspReportDetailsSchema,
+  type CspReport,
+} from './cspReport.js'
+
+
 

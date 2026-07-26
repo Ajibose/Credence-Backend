@@ -1,19 +1,9 @@
 import { Request, Response, NextFunction } from 'express'
 import { MissingSecurityHeaderError } from '../lib/errors.js'
 
-const REQUIRED_HEADERS = [
-  'content-security-policy',
-  'strict-transport-security',
-  'referrer-policy',
-  'cross-origin-resource-policy',
-  'x-content-type-options',
-] as const
-
-type RequiredHeader = typeof REQUIRED_HEADERS[number]
-
 export interface SecurityHeaderCheckResult {
-  missing: RequiredHeader[]
-  present: RequiredHeader[]
+  missing: string[]
+  present: string[]
 }
 
 export function checkSecurityHeaders(
@@ -21,9 +11,22 @@ export function checkSecurityHeaders(
   res: Response,
   next: NextFunction
 ): void {
-  const missing: RequiredHeader[] = []
+  const isProduction = process.env.NODE_ENV === 'production'
+  const cspHeader = isProduction
+    ? 'content-security-policy-report-only'
+    : 'content-security-policy'
 
-  for (const header of REQUIRED_HEADERS) {
+  const requiredHeaders = [
+    cspHeader,
+    'strict-transport-security',
+    'referrer-policy',
+    'cross-origin-resource-policy',
+    'x-content-type-options',
+  ]
+
+  const missing: string[] = []
+
+  for (const header of requiredHeaders) {
     if (!res.getHeader(header)) {
       missing.push(header)
     }

@@ -7,31 +7,6 @@ servers:
   - url: https://api.credence.org/v1
 components:
   schemas:
-    ErrorResponse:
-      type: object
-      description: Standard error envelope returned by all API error responses. Consumers should branch on `code` (or the `error_code` alias) rather than parsing the `error` message.
-      properties:
-        error:
-          type: string
-          description: Human-readable error message. In production, this is always the catalog default message; in non-production environments it may contain the original error detail.
-          example: Validation failed
-        code:
-          type: string
-          description: Machine-readable error code from the centralized error catalog. Stable across releases.
-          example: validation_failed
-        error_code:
-          type: string
-          description: Alias of `code`. Present for backward compatibility; branch on `code`.
-          example: validation_failed
-        details:
-          type: array
-          description: Optional structured details (e.g., Zod issue list). Omitted in production to prevent PII leakage.
-          items:
-            type: object
-      required:
-        - error
-        - code
-        - error_code
     addressSchema:
       def:
         type: string
@@ -1348,6 +1323,239 @@ components:
                 minLength: null
                 maxLength: null
             type: optional
+      type: object
+    cspReportDetailsSchema:
+      def:
+        type: object
+        shape:
+          document-uri:
+            def:
+              type: string
+            type: string
+            format: null
+            minLength: null
+            maxLength: null
+          referrer:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          blocked-uri:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          violated-directive:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          effective-directive:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          original-policy:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          disposition:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+          status-code:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: number
+                  checks:
+                    - def:
+                        type: number
+                        check: number_format
+                        abort: false
+                        format: safeint
+                      type: number
+                      minValue: -9007199254740991
+                      maxValue: 9007199254740991
+                      isInt: true
+                      isFinite: true
+                      format: safeint
+                type: number
+                minValue: -9007199254740991
+                maxValue: 9007199254740991
+                isInt: true
+                isFinite: true
+                format: safeint
+            type: optional
+          script-sample:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                type: string
+                format: null
+                minLength: null
+                maxLength: null
+            type: optional
+      type: object
+    cspReportSchema:
+      def:
+        type: object
+        shape:
+          csp-report:
+            def:
+              type: object
+              shape:
+                document-uri:
+                  def:
+                    type: string
+                  type: string
+                  format: null
+                  minLength: null
+                  maxLength: null
+                referrer:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                blocked-uri:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                violated-directive:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                effective-directive:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                original-policy:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                disposition:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+                status-code:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: number
+                        checks:
+                          - def:
+                              type: number
+                              check: number_format
+                              abort: false
+                              format: safeint
+                            type: number
+                            minValue: -9007199254740991
+                            maxValue: 9007199254740991
+                            isInt: true
+                            isFinite: true
+                            format: safeint
+                      type: number
+                      minValue: -9007199254740991
+                      maxValue: 9007199254740991
+                      isInt: true
+                      isFinite: true
+                      format: safeint
+                  type: optional
+                script-sample:
+                  def:
+                    type: optional
+                    innerType:
+                      def:
+                        type: string
+                      type: string
+                      format: null
+                      minLength: null
+                      maxLength: null
+                  type: optional
+            type: object
       type: object
     dismissDisputeBodySchema:
       def:
@@ -8090,6 +8298,36 @@ components:
       required:
         - tenantId
         - rolloutPercent
+    CspReport:
+      type: object
+      properties:
+        csp-report:
+          $ref: "#/components/schemas/CspReportDetails"
+      required:
+        - csp-report
+    CspReportDetails:
+      type: object
+      properties:
+        document-uri:
+          type: string
+        referrer:
+          type: string
+        blocked-uri:
+          type: string
+        violated-directive:
+          type: string
+        effective-directive:
+          type: string
+        original-policy:
+          type: string
+        disposition:
+          type: string
+        status-code:
+          type: integer
+        script-sample:
+          type: string
+      required:
+        - document-uri
   securitySchemes:
     bearerAuth:
       type: http
@@ -9537,3 +9775,75 @@ paths:
                 required:
                   - error
                   - message
+  /api/admin/replay-webhook:
+    post:
+      summary: Replay a failed webhook delivery
+      description: Replays a specific failed webhook delivery from the DLQ by id
+        (passed in body). Audit-logged via WebhookService.replayWebhook.
+      tags:
+        - Admin
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json: {}
+      responses:
+        "200":
+          description: Webhook replayed successfully
+          content:
+            application/json:
+              schema:
+                nullable: true
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required:
+                  - error
+                  - message
+        "404":
+          description: DLQ entry or Webhook not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  message:
+                    type: string
+                required:
+                  - error
+                  - message
+  /csp-report:
+    post:
+      summary: CSP violation report endpoint
+      description: Endpoint for browsers to post Content Security Policy violation reports.
+      tags:
+        - Security
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CspReport"
+          application/csp-report:
+            schema:
+              $ref: "#/components/schemas/CspReport"
+      responses:
+        "204":
+          description: Report received
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                nullable: true
