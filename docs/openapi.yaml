@@ -3719,6 +3719,112 @@ components:
                   maxLength: null
             type: object
       type: object
+    paginationLinksSchema:
+      def:
+        type: object
+        shape:
+          self:
+            def:
+              type: string
+              checks:
+                - def:
+                    type: string
+                    format: url
+                    check: string_format
+                    abort: false
+                  type: string
+                  format: url
+                  minLength: null
+                  maxLength: null
+            type: string
+            format: url
+            minLength: null
+            maxLength: null
+          first:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                  checks:
+                    - def:
+                        type: string
+                        format: url
+                        check: string_format
+                        abort: false
+                      type: string
+                      format: url
+                      minLength: null
+                      maxLength: null
+                type: string
+                format: url
+                minLength: null
+                maxLength: null
+            type: optional
+          prev:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                  checks:
+                    - def:
+                        type: string
+                        format: url
+                        check: string_format
+                        abort: false
+                      type: string
+                      format: url
+                      minLength: null
+                      maxLength: null
+                type: string
+                format: url
+                minLength: null
+                maxLength: null
+            type: optional
+          next:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                  checks:
+                    - def:
+                        type: string
+                        format: url
+                        check: string_format
+                        abort: false
+                      type: string
+                      format: url
+                      minLength: null
+                      maxLength: null
+                type: string
+                format: url
+                minLength: null
+                maxLength: null
+            type: optional
+          last:
+            def:
+              type: optional
+              innerType:
+                def:
+                  type: string
+                  checks:
+                    - def:
+                        type: string
+                        format: url
+                        check: string_format
+                        abort: false
+                      type: string
+                      format: url
+                      minLength: null
+                      maxLength: null
+                type: string
+                format: url
+                minLength: null
+                maxLength: null
+            type: optional
+      type: object
     policyListQuerySchema:
       def:
         type: object
