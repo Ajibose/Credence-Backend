@@ -30,15 +30,18 @@ const DEFAULT_MESSAGES = {
   'value_too_large': "The request contains a value above the allowed maximum",
   'unexpected_field': "The request contains an unexpected field",
   'invalid_type': "The request contains a field with an invalid type",
+  'unsafe_redirect_target': "The requested redirect target is not permitted",
   'invalid_stellar_address': "The request contains an invalid Stellar address",
   'batch_size_too_small': "The batch size is below the allowed minimum",
   'batch_size_exceeded': "The batch size exceeds the allowed maximum",
+  'request_too_large': "The request body exceeds the maximum allowed size",
   'unauthorized': "Authentication is required",
   'forbidden': "The authenticated caller is not allowed to perform this action",
   'not_found': "The requested resource was not found",
   'conflict': "The request conflicts with the current resource state",
   'idempotency_key_mismatch': "Idempotency key is already bound to a different actor or payload",
   'insufficient_credits': "Monthly credit budget exhausted",
+  'ssrf_blocked': "The target URL resolves to a restricted or internal network address",
   'insufficient_funds': "The account has insufficient funds for this operation",
   'invalid_dispute_transition': "Invalid dispute state transition",
   'rate_limit_exceeded': "Rate limit exceeded",
@@ -251,6 +254,20 @@ export class InvalidTypeCredenceError extends CredenceError {
   }
 }
 
+export class UnsafeRedirectTargetCredenceError extends CredenceError {
+  static readonly errorCode = 'unsafe_redirect_target' as const
+
+  constructor(
+    message: string = DEFAULT_MESSAGES['unsafe_redirect_target'],
+    status: number = 400,
+    details?: unknown,
+    options?: CredenceErrorOptions,
+  ) {
+    super(message, 'unsafe_redirect_target', status, details, options)
+    this.name = 'UnsafeRedirectTargetCredenceError'
+  }
+}
+
 export class InvalidStellarAddressCredenceError extends CredenceError {
   static readonly errorCode = 'invalid_stellar_address' as const
 
@@ -290,6 +307,20 @@ export class BatchSizeExceededCredenceError extends CredenceError {
   ) {
     super(message, 'batch_size_exceeded', status, details, options)
     this.name = 'BatchSizeExceededCredenceError'
+  }
+}
+
+export class RequestTooLargeCredenceError extends CredenceError {
+  static readonly errorCode = 'request_too_large' as const
+
+  constructor(
+    message: string = DEFAULT_MESSAGES['request_too_large'],
+    status: number = 413,
+    details?: unknown,
+    options?: CredenceErrorOptions,
+  ) {
+    super(message, 'request_too_large', status, details, options)
+    this.name = 'RequestTooLargeCredenceError'
   }
 }
 
@@ -374,6 +405,20 @@ export class InsufficientCreditsCredenceError extends CredenceError {
   ) {
     super(message, 'insufficient_credits', status, details, options)
     this.name = 'InsufficientCreditsCredenceError'
+  }
+}
+
+export class SsrfBlockedCredenceError extends CredenceError {
+  static readonly errorCode = 'ssrf_blocked' as const
+
+  constructor(
+    message: string = DEFAULT_MESSAGES['ssrf_blocked'],
+    status: number = 422,
+    details?: unknown,
+    options?: CredenceErrorOptions,
+  ) {
+    super(message, 'ssrf_blocked', status, details, options)
+    this.name = 'SsrfBlockedCredenceError'
   }
 }
 
@@ -529,15 +574,18 @@ export const CREDENCE_ERROR_REGISTRY = {
   'value_too_large': ValueTooLargeCredenceError,
   'unexpected_field': UnexpectedFieldCredenceError,
   'invalid_type': InvalidTypeCredenceError,
+  'unsafe_redirect_target': UnsafeRedirectTargetCredenceError,
   'invalid_stellar_address': InvalidStellarAddressCredenceError,
   'batch_size_too_small': BatchSizeTooSmallCredenceError,
   'batch_size_exceeded': BatchSizeExceededCredenceError,
+  'request_too_large': RequestTooLargeCredenceError,
   'unauthorized': UnauthorizedCredenceError,
   'forbidden': ForbiddenCredenceError,
   'not_found': NotFoundCredenceError,
   'conflict': ConflictCredenceError,
   'idempotency_key_mismatch': IdempotencyKeyMismatchCredenceError,
   'insufficient_credits': InsufficientCreditsCredenceError,
+  'ssrf_blocked': SsrfBlockedCredenceError,
   'insufficient_funds': InsufficientFundsCredenceError,
   'invalid_dispute_transition': InvalidDisputeTransitionCredenceError,
   'rate_limit_exceeded': RateLimitExceededCredenceError,

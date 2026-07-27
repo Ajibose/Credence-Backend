@@ -2,6 +2,7 @@ import { Pool, type PoolClient } from 'pg'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { RequestSnapshotsRepository } from './repositories/requestSnapshotsRepository.js'
 import { dbTxnDurationSeconds, dbTxnSavepoints } from '../observability/index.js'
+import { withSpan, DbSpans } from '../tracing/tracer.js'
 
 export const transactionStorage = new AsyncLocalStorage<PoolClient>()
 export const disableRedirectionStorage = new AsyncLocalStorage<boolean>()
@@ -84,6 +85,8 @@ export interface TransactionOptions {
   retryDelayMs?: number;
   maxDurationMs?: number;
   maxSavepoints?: number;
+  /** Label for the db.tx span `op` attribute (e.g. "process_payment"). */
+  op?: string;
 }
 
 const FALLBACK_TIMEOUTS: LockTimeoutConfig = {
@@ -104,6 +107,7 @@ function createBudgetedClient(
   maxDurationMs: number,
   maxSavepoints: number,
   savepointCountRef: { count: number },
+  tablesRef: { tables: Set<string> },
 ): PoolClient {
   const wrappedQuery = async (...args: any[]) => {
     // Check duration budget before executing query
@@ -118,6 +122,15 @@ function createBudgetedClient(
       savepointCountRef.count++;
       if (savepointCountRef.count > maxSavepoints) {
         throw new TransactionBudgetError('savepoints_exceeded', undefined, maxSavepoints, undefined, savepointCountRef.count);
+      }
+    }
+
+    // Track unique table names referenced in the query
+    if (sql) {
+      const tableRegex = /(?:FROM|INTO|UPDATE|TABLE|JOIN)\s+["']?(\w+)["']?\b/gi;
+      let match: RegExpExecArray | null;
+      while ((match = tableRegex.exec(sql)) !== null) {
+        tablesRef.tables.add(match[1].toLowerCase());
       }
     }
 
@@ -220,6 +233,7 @@ export class TransactionManager {
       retryDelayMs = 100,
       maxDurationMs = DEFAULT_MAX_DURATION_MS,
       maxSavepoints = DEFAULT_MAX_SAVEPOINTS,
+      op,
     } = options;
 
     const effectiveTimeoutMs =
@@ -243,6 +257,7 @@ export class TransactionManager {
       const client = await this.pool.connect();
       const startTime = Date.now();
       const savepointCountRef = { count: 0 };
+      const tablesRef = { tables: new Set<string>() };
 
       try {
         const beginSql = isolationLevel
@@ -266,12 +281,18 @@ export class TransactionManager {
           // Swallow: setting may not be needed in some environments
         }
 
-        const budgetedClient = createBudgetedClient(client, startTime, maxDurationMs, maxSavepoints, savepointCountRef);
-        const result = await transactionStorage.run(budgetedClient, async () => {
-          return await transactionContextStorage.run(context, async () => {
-            return await fn(budgetedClient);
-          });
-        });
+        const budgetedClient = createBudgetedClient(client, startTime, maxDurationMs, maxSavepoints, savepointCountRef, tablesRef);
+
+        const initAttrs: Record<string, string | number | boolean> = {};
+        if (op) {
+          initAttrs.op = op;
+        }
+
+        const result = await withSpan(DbSpans.TX, async (span) => {
+          const r = await fn(budgetedClient);
+          span.setAttribute('table_count', tablesRef.tables.size);
+          return r;
+        }, initAttrs);
 
         await client.query("COMMIT");
 

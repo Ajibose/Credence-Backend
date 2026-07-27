@@ -15,16 +15,8 @@ import { requireUserAuth, UserRole, type AuthenticatedRequest, requireApiKey } f
 import { InMemoryApiKeyRepository } from '../repositories/apiKeyRepository.js'
 import { ApiKeyRotationService } from '../services/apiKeyRotationService.js'
 import { auditLogService } from '../services/audit/index.js'
-import {
-  generateApiKey,
-  listApiKeys,
-  revokeApiKey,
-  rotateApiKey,
-  ApiKeyScope,
-  type KeyScope,
-  type SubscriptionTier
-} from '../services/apiKeys.js'
-import { ValidationError, NotFoundError, ForbiddenError } from '../lib/errors.js'
+import type { KeyScope, SubscriptionTier } from '../services/apiKeys.js'
+import { ValidationError, NotFoundError, ForbiddenError, sendError, ErrorCode } from '../lib/errors.js'
 
 const VALID_SCOPES: KeyScope[] = ['read', 'full']
 const VALID_TIERS: SubscriptionTier[] = ['free', 'pro', 'enterprise']
@@ -96,10 +88,8 @@ export function createApiKeyRouter(
       const newKey = await rotationService.rotateKey(id, user!.id, user!.email, req.ip)
 
       if (!newKey) {
-        res.status(409).json({
-          error: 'Conflict',
-          message: 'API key is already revoked and cannot be rotated',
-        })
+        // Key existed but was already revoked — conflict.
+        sendError(res, ErrorCode.CONFLICT, 'API key is already revoked and cannot be rotated')
         return
       }
 
