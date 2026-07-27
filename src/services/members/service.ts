@@ -30,6 +30,8 @@ import type {
   MemberRole,
   PaginationOptions,
 } from './types.js'
+import { profileInvalidationHook } from '../../cache/invalidationHooks.js'
+import { logger } from '../../utils/logger.js'
 
 export class MemberService {
   constructor(
@@ -82,6 +84,11 @@ export class MemberService {
       undefined,
       undefined,
       requestId
+    )
+
+    // Post-commit hook: invalidate profile caches
+    profileInvalidationHook.execute(orgId, member.id).catch((err) =>
+      logger.error({ err, msg: 'Failed to invalidate cache after inviteMember' }),
     )
 
     return {
@@ -158,6 +165,11 @@ export class MemberService {
       'success',
     )
 
+    // Post-commit hook: invalidate profile caches
+    profileInvalidationHook.execute(existing.orgId, memberId).catch((err) =>
+      logger.error({ err, msg: 'Failed to invalidate cache after updateMemberRole' }),
+    )
+
     return {
       success: true,
       member: toMemberView(updated),
@@ -203,6 +215,11 @@ export class MemberService {
       existing.userId, existing.email,
       { memberId, orgId: existing.orgId, deletedAt: deleted.deletedAt },
       'success',
+    )
+
+    // Post-commit hook: invalidate profile caches
+    profileInvalidationHook.execute(existing.orgId, memberId).catch((err) =>
+      logger.error({ err, msg: 'Failed to invalidate cache after deleteMember' }),
     )
 
     return { success: true, message: `Member ${existing.email} has been removed` }
@@ -255,6 +272,11 @@ export class MemberService {
       existing.userId, existing.email,
       { memberId, orgId: existing.orgId },
       'success',
+    )
+
+    // Post-commit hook: invalidate profile caches
+    profileInvalidationHook.execute(existing.orgId, memberId).catch((err) =>
+      logger.error({ err, msg: 'Failed to invalidate cache after restoreMember' }),
     )
 
     return {
