@@ -172,6 +172,16 @@ export function withCacheInvalidation<T extends (...args: any[]) => Promise<any>
  * @param parts - Parts to join into a cache key
  * @returns Cache key string
  */
-export function createCacheKey(...parts: (string | number)[]): string {
-  return parts.join(':')
+export function createCacheKey(...parts: (string | number | Record<string, string | number>)[]): string {
+  return parts
+    .map(p => {
+      if (typeof p === 'object' && p !== null) {
+        return Object.keys(p)
+          .sort()
+          .map(k => `${k}=${JSON.stringify(p[k])}`)
+          .join('&')
+      }
+      return String(p)
+    })
+    .join(':')
 }
