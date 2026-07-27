@@ -35,10 +35,12 @@ This reference is generated from `src/lib/errorCatalog.ts` and is the source of 
 | `invalid_stellar_address` | 400 | validation | The request contains an invalid Stellar address |
 | `invalid_type` | 400 | validation | The request contains a field with an invalid type |
 | `unexpected_field` | 400 | validation | The request contains an unexpected field |
+| `unsafe_redirect_target` | 400 | validation | The requested redirect target is not permitted |
 | `validation_failed` | 400 | validation | Validation failed |
 | `value_too_large` | 400 | validation | The request contains a value above the allowed maximum |
 | `value_too_small` | 400 | validation | The request contains a value below the allowed minimum |
 | `batch_size_exceeded` | 413 | validation | The batch size exceeds the allowed maximum |
+| `request_too_large` | 413 | validation | The request body exceeds the maximum allowed size |
 
 ## Localization catalog
 
@@ -46,7 +48,7 @@ This reference is generated from `src/lib/errorCatalog.ts` and is the source of 
 
 | Locale | Coverage | Notes |
 | --- | ---: | --- |
-| `en` | 27 messages | Catalog default messages for active codes. |
+| `en` | 29 messages | Catalog default messages for active codes. |
 
 ## Deprecated codes
 

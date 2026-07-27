@@ -3,7 +3,7 @@ import type { BondService } from '../services/bond/index.js'
 import { deriveBondPaymentStatus } from '../services/bond/index.js'
 import { validate, type ValidatedRequest } from '../middleware/validate.js'
 import { bondPathParamsSchema, type BondPathParams } from '../schemas/index.js'
-import { NotFoundError } from '../lib/errors.js'
+import { NotFoundError, sendError, ErrorCode } from '../lib/errors.js'
 
 /**
  * Builds the bond status router.
@@ -61,7 +61,7 @@ export function createBondRouter(bondService: BondService): Router {
    * Creates or tops up a bond. Stub — full implementation pending on-chain write layer.
    */
   router.post('/', (_req: Request, res: Response) => {
-    res.status(501).json({ error: 'Not implemented' })
+    sendError(res, ErrorCode.SERVICE_UNAVAILABLE, 'Not implemented', undefined, 501)
   })
 
   return router

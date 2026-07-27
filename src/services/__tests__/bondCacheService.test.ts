@@ -24,6 +24,14 @@ vi.mock('../../cache/invalidation.js', async () => {
   }
 })
 
+vi.mock('../../config/index.js', () => ({
+  loadConfig: () => ({
+    bondCache: {
+      ttl: 900,
+    },
+  }),
+}))
+
 describe('BondCacheService', () => {
   let service: BondCacheService
   let mockRepository: BondsRepository
@@ -70,7 +78,7 @@ describe('BondCacheService', () => {
 
       expect(cache.get).toHaveBeenCalledWith('bond', 'id:1')
       expect(mockRepository.findById).toHaveBeenCalledWith(1)
-      expect(cache.set).toHaveBeenCalledWith('bond', 'id:1', mockBond, 300)
+      expect(cache.set).toHaveBeenCalledWith('bond', 'id:1', mockBond, 900)
       expect(result).toEqual(mockBond)
     })
 
@@ -104,7 +112,7 @@ describe('BondCacheService', () => {
       const result = await service.getBondsByIdentity('0x123')
 
       expect(mockRepository.listByIdentity).toHaveBeenCalledWith('0x123')
-      expect(cache.set).toHaveBeenCalledWith('bond', 'identity:0x123', [mockBond], 300)
+      expect(cache.set).toHaveBeenCalledWith('bond', 'identity:0x123', [mockBond], 900)
       expect(result).toEqual([mockBond])
     })
   })

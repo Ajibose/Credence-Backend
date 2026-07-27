@@ -6,14 +6,17 @@ import {
   UserRole,
 } from "../../middleware/auth.js";
 import erasureProofRouter from './erasureProof.js'
+import auditChainStatusRouter from './auditChainStatus.js'
+import settlementReconciliationRouter from './settlementReconciliation.js'
+import migrationsRouter from './migrations.js'
 import {
   buildPaginationMeta,
   parsePaginationParams,
 } from "../../lib/pagination.js";
 import { AdminService } from "../../services/admin/index.js";
-import { auditLogService } from "../../services/audit/index.js";
+import { auditLogService, AuditAction } from "../../services/audit/index.js";
 import { impersonationService } from "../../services/impersonation/index.js";
-import { AppError, ErrorCode, ValidationError } from "../../lib/errors.js";
+import { AppError, ErrorCode, ValidationError, sendError } from "../../lib/errors.js";
 import type {
   AssignRoleRequest,
   RevokeApiKeyRequest,
@@ -27,6 +30,26 @@ import { registerAllReplayHandlers } from "../../services/replayHandlers.js";
 import { IdentityRepository } from "../../db/repositories/identityRepository.js";
 import { BondsRepository } from "../../db/repositories/bondsRepository.js";
 import { pool } from "../../db/pool.js";
+import { validate } from '../../middleware/validate.js'
+import {
+  assignRoleBodySchema,
+  revokeApiKeyBodySchema,
+  issueImpersonationTokenBodySchema,
+  replayEventBodySchema,
+  purgeCacheBodySchema,
+} from '../../schemas/admin.js'
+import type { ReplayEventBody, PurgeCacheBody } from '../../schemas/admin.js'
+import { cache } from '../../cache/redis.js'
+import { invalidateCache, invalidatePattern } from '../../cache/invalidation.js'
+import { z } from 'zod'
+import { preventAdminCrawling } from "../../middleware/preventAdminCrawling.js";
+import { validateConfig, ConfigValidationError } from "../../config/index.js";
+import fs from "fs";
+import dotenv from "dotenv";
+import { WebhookService } from "../../services/webhooks/service.js";
+import { PostgresWebhookRepository } from "../../db/repositories/webhookRepository.js";
+import { PostgresDlqStore } from "../../services/webhooks/postgresDlqStore.js";
+
 
 /**
  * Create the admin router with role and user management endpoints
@@ -45,6 +68,8 @@ export function createAdminRouter(): Router {
 
   // Register handlers
   registerAllReplayHandlers(replayService, identityRepo, bondsRepo);
+
+  router.use(preventAdminCrawling);
 
   /**
    * GET /api/admin/users
@@ -91,17 +116,12 @@ export function createAdminRouter(): Router {
   /**
    * POST /api/admin/roles/assign
    */
-  router.post('/roles/assign', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/roles/assign', requireUserAuth, requireAdminRole, validate({ body: assignRoleBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
       const requestId = (req as any).requestId
       const assignRequest = req.body as AssignRoleRequest
-
-      // Validate request body
-      if (!assignRequest.userId || !assignRequest.role) {
-        throw new ValidationError('Missing required fields: userId, role')
-      }
 
       const result = await adminService.assignRole(
         user.id,
@@ -120,20 +140,134 @@ export function createAdminRouter(): Router {
     }
   });
 
+  const handleReloadConfig = async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const authReq = req as AuthenticatedRequest
+      const user = authReq.user!
+      const requestId = (req as any).requestId
+
+      const envPath = process.cwd() + '/.env';
+      let parsed = {};
+      if (fs.existsSync(envPath)) {
+        parsed = dotenv.parse(fs.readFileSync(envPath));
+      }
+      
+      const candidateEnv = { ...process.env, ...parsed };
+      
+      try {
+        validateConfig(candidateEnv as any);
+      } catch (err: any) {
+        if (err instanceof ConfigValidationError) {
+          sendError(res, ErrorCode.VALIDATION_FAILED, 'Vault secrets validation failed', err.issues)
+          return;
+        }
+        throw err;
+      }
+      
+      // Apply the validated config to process.env
+      for (const [k, v] of Object.entries(parsed)) {
+        process.env[k] = v as string;
+      }
+
+      // Audit log the action
+      void auditLogService.logAction(
+        user.tenantId,
+        user.id,
+        user.email,
+        AuditAction.RELOAD_CONFIG,
+        'system',
+        undefined,
+        { action: 'reload-config' },
+        undefined,
+        undefined,
+        req.ip,
+        requestId
+      );
+
+      res.status(200).json({ success: true });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  /**
+   * POST /api/admin/reload-config
+   * Triggering a live reload of the validated config; audit-logged.
+   */
+  router.post('/reload-config', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/refresh-secrets
+   * Reloads secrets from the vault (.env) without a restart.
+   * @deprecated Use /reload-config instead.
+   */
+  router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/purge-cache
+   * Purges cache by key or pattern in a specified namespace; audit-logged.
+   */
+  router.post(
+    '/purge-cache',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: purgeCacheBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { namespace, key, pattern } = req.body as PurgeCacheBody
+
+        let clearedCount = 0
+        if (pattern) {
+          clearedCount = await invalidatePattern(namespace, pattern)
+        } else if (key) {
+          const success = await invalidateCache(namespace, key)
+          clearedCount = success ? 1 : 0
+        } else {
+          clearedCount = await cache.clearNamespace(namespace)
+        }
+
+        // Audit log the purge action
+        void auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.PURGE_CACHE,
+          namespace,
+          undefined,
+          { namespace, key, pattern, clearedCount },
+          undefined,
+          undefined,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json({
+          success: true,
+          message: `Cache purged for namespace '${namespace}'`,
+          data: {
+            namespace,
+            clearedCount,
+          },
+        })
+      } catch (err) {
+        next(err)
+      }
+    }
+  );
+
+
   /**
    * POST /api/admin/keys/revoke
    */
-  router.post('/keys/revoke', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/keys/revoke', requireUserAuth, requireAdminRole, validate({ body: revokeApiKeyBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
       const requestId = (req as any).requestId
       const revokeRequest = req.body as RevokeApiKeyRequest
-
-      // Validate request body
-      if (!revokeRequest.userId || !revokeRequest.apiKey) {
-        throw new ValidationError('Missing required fields: userId, apiKey')
-      }
 
       const result = await adminService.revokeApiKey(
         user.id,
@@ -156,19 +290,15 @@ export function createAdminRouter(): Router {
    *
    * Issue a short-lived impersonation token for support/debug purposes.
    */
-  router.post('/impersonate', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next) => {
+  router.post('/impersonate', requireUserAuth, requireAdminRole, validate({ body: issueImpersonationTokenBodySchema }), async (req: Request, res: Response, next) => {
     try {
       const authReq = req as AuthenticatedRequest
       const user = authReq.user!
       const requestId = (req as any).requestId
       const body = req.body as Partial<IssueImpersonationTokenRequest>
 
-      if (!body.targetUserId) {
-        res.status(400).json({ error: 'InvalidRequest', message: 'targetUserId is required' })
-        return
-      }
-      if (!body.reason) {
-        res.status(400).json({ error: 'InvalidRequest', message: 'reason is required' })
+      if (!body.targetUserId || !body.reason) {
+        sendError(res, ErrorCode.FIELD_REQUIRED, 'targetUserId and reason are required')
         return
       }
 
@@ -190,10 +320,10 @@ export function createAdminRouter(): Router {
       const message =
         error instanceof Error ? error.message : "Unknown error";
       if (/User not found/i.test(message)) {
-        res.status(404).json({ error: "NotFound", message });
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return;
       }
-      res.status(400).json({ error: "BadRequest", message });
+      sendError(res, ErrorCode.VALIDATION_FAILED, message)
     }
   });
 
@@ -209,7 +339,7 @@ export function createAdminRouter(): Router {
     const { tokenId } = req.params
 
     if (!tokenId) {
-      res.status(400).json({ error: 'InvalidRequest', message: 'tokenId is required' })
+      sendError(res, ErrorCode.FIELD_REQUIRED, 'tokenId is required')
       return
     }
 
@@ -219,10 +349,10 @@ export function createAdminRouter(): Router {
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
       if (/Token not found/i.test(message)) {
-        res.status(404).json({ error: 'NotFound', message })
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return
       }
-      res.status(400).json({ error: "BadRequest", message });
+      sendError(res, ErrorCode.VALIDATION_FAILED, message)
     }
   });
 
@@ -329,8 +459,7 @@ export function createAdminRouter(): Router {
         user.email,
         startDate,
         endDate,
-        count,
-        requestId
+        count
       );
       res.end();
     } catch (error) {
@@ -408,9 +537,109 @@ export function createAdminRouter(): Router {
 
       res.status(200).json(result)
     } catch (error: any) {
-      res.status(400).json({ error: 'ReplayFailed', message: error.message })
+      next(error)
     }
   })
+
+  /**
+   * POST /api/admin/events/replay-range
+   * Replay raw Horizon events between `fromLedger` and `toLedger` (inclusive).
+   */
+  router.post(
+    '/events/replay-range',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: z.object({ fromLedger: z.coerce.number().int().min(0), toLedger: z.coerce.number().int().min(0) }) }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const { fromLedger, toLedger } = req.body as { fromLedger: number; toLedger: number }
+
+        const result = await replayService.replayLedgerRange(
+          fromLedger,
+          toLedger,
+          admin.id,
+          admin.email,
+          admin.tenantId,
+          req.ip
+        )
+
+        res.status(200).json({ success: true, data: result })
+      } catch (error: any) {
+        sendError(res, ErrorCode.VALIDATION_FAILED, error.message)
+      }
+    }
+  )
+
+  /**
+   * POST /api/admin/replay-event
+   *
+   * Replay a specific failed inbound event by id (passed in body).
+   * Audit-logged via ReplayService.replayEvent.
+   */
+  router.post(
+    '/replay-event',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: replayEventBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { id } = req.body as ReplayEventBody
+
+        const result = await replayService.replayEvent(
+          id,
+          admin.id,
+          admin.email,
+          admin.tenantId,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json(result)
+      } catch (error: any) {
+        next(error)
+      }
+    }
+  )
+
+  /**
+   * POST /api/admin/replay-webhook
+   * 
+   * Replay a specific failed webhook delivery from the DLQ on demand.
+   * Audit-logged via WebhookService.replayWebhook.
+   */
+  router.post(
+    '/replay-webhook',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: replayWebhookBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { id } = req.body as ReplayWebhookBody
+
+        const webhookStore = new PostgresWebhookRepository(pool)
+        const dlqStore = new PostgresDlqStore(pool)
+        const webhookService = new WebhookService(webhookStore, undefined, dlqStore, auditLogService)
+
+        const result = await webhookService.replayWebhook(
+          id,
+          { id: admin.id, email: admin.email, tenantId: admin.tenantId },
+          requestId
+        )
+
+        res.status(200).json(result)
+      } catch (error: any) {
+        next(error)
+      }
+    }
+  )
 
   /**
    * POST /api/admin/replay
@@ -471,6 +700,15 @@ export function createAdminRouter(): Router {
 
   // Mount erasure-proof sub-routes
   router.use(erasureProofRouter)
+
+  // Mount audit chain status (read-only verifier state)
+  router.use('/audit', auditChainStatusRouter)
+
+  // Mount settlement reconciliation report (read-only)
+  router.use('/settlement', settlementReconciliationRouter)
+
+  // Mount migrations sub-router (dry-run)
+  router.use('/migrations', migrationsRouter)
 
   return router
 }

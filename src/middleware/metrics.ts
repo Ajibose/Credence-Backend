@@ -12,7 +12,7 @@
 import { Request, Response, NextFunction } from 'express'
 import client from 'prom-client'
 import { httpRequestDurationHistogram, httpRequestStatusTotal, normalizeRoute, registerLatencyMetrics } from '../observability/latencyMetrics.js'
-import { registerPoolMetrics } from '../observability/index.js'
+import { registerPoolMetrics, registerRpcLatencyMetrics } from '../observability/index.js'
 import { registerAdvisoryLockMetrics } from '../jobs/advisoryLockMonitor.js'
 import { pool, workerPool } from '../db/pool.js'
 
@@ -24,6 +24,9 @@ registerLatencyMetrics(register)
 
 // Register database connection pool metrics
 registerPoolMetrics(register, pool, workerPool)
+
+// Register downstream RPC latency metrics
+registerRpcLatencyMetrics(register)
 
 // Register circuit breaker metrics
 import { registerCircuitBreakerMetrics } from '../clients/circuitBreaker.js'
@@ -168,6 +171,19 @@ export const settlementDriftTotal = new client.Counter({
   registers: [register]
 })
 
+export const settlementUnmatchedCount = new client.Gauge({
+  name: 'settlement_unmatched_count',
+  help: 'Current number of unmatched settlement reconciliation findings from the latest run',
+  registers: [register],
+})
+
+export const shadowWriteMismatches = new client.Counter({
+  name: 'shadow_write_mismatches_total',
+  help: 'Total number of shadow write mode mismatches between old and new pipelines',
+  labelNames: ['mismatch_type'],
+  registers: [register]
+})
+
 // ============================================================================
 // Webhooks Metrics
 // ============================================================================
@@ -175,6 +191,16 @@ export const settlementDriftTotal = new client.Counter({
 export const webhookDlqSize = new client.Gauge({
   name: 'webhook_dlq_size',
   help: 'Number of messages in the webhook dead-letter queue',
+  registers: [register]
+})
+
+// ============================================================================
+// Memory/OOM Metrics
+// ============================================================================
+
+export const oomEventsTotal = new client.Counter({
+  name: 'oom_events_total',
+  help: 'Total number of out-of-memory events detected',
   registers: [register]
 })
 
@@ -192,6 +218,8 @@ export const webhookDlqSize = new client.Gauge({
  * ```
  */
 export function metricsMiddleware(req: Request, res: Response, next: NextFunction) {
+  // Initialize a fresh metrics namespace for each request to avoid leakage
+  (req as any).metrics = {};
   const start = Date.now()
   const hrStart = process.hrtime.bigint()
   
@@ -374,6 +402,36 @@ export function recordSettlementDrift(findingType: 'state_mismatch' | 'missing_o
 }
 
 /**
+ * Set the current unmatched settlement count gauge.
+ *
+ * Called at the end of each reconciliation run so operators can
+ * alert on non-zero drift without reading logs.
+ *
+ * @param count - Number of unmatched findings in the latest run
+ */
+export function setSettlementUnmatchedCount(count: number) {
+  settlementUnmatchedCount.set(count)
+}
+
+/**
+ * Record shadow write mode mismatch between old and new pipelines
+ * 
+ * Usage:
+ * ```typescript
+ * import { recordShadowWriteMismatch } from './middleware/metrics.js'
+ * 
+ * if (oldResult.status !== newResult.status) {
+ *   recordShadowWriteMismatch('status_mismatch')
+ * }
+ * ```
+ */
+export function recordShadowWriteMismatch(
+  mismatchType: 'status_mismatch' | 'data_mismatch' | 'error_mismatch'
+) {
+  shadowWriteMismatches.inc({ mismatch_type: mismatchType })
+}
+
+/**
  * Record webhook DLQ size
  * 
  * Usage:
@@ -385,4 +443,11 @@ export function recordSettlementDrift(findingType: 'state_mismatch' | 'missing_o
  */
 export function recordWebhookDlqSize(size: number) {
   webhookDlqSize.set(size)
+}
+
+/**
+ * Record an out-of-memory event
+ */
+export function recordOomEvent(): void {
+  oomEventsTotal.inc()
 }

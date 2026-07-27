@@ -10,8 +10,10 @@ import {
 } from '../../lib/retryPolicy.js'
 import { noopRetryObserver, type RetryObserver } from '../../observability/retryMetrics.js'
 import { webhookPayloadBytes } from '../../observability/customMetrics.js'
+import { checkHostBlocked } from '../../lib/ssrfProtection.js'
 import { logger } from '../../utils/logger.js'
 import type { WebhookConfig, WebhookPayload, WebhookDeliveryResult } from './types.js'
+import { generateWebhookIdempotencyKey } from './idempotency.js'
 
 /**
  * Options for webhook delivery.
@@ -47,6 +49,13 @@ export interface DeliveryOptions {
   httpsAgent?: https.Agent
   /** Payload size cap in bytes (default from config). */
   payloadSizeCap?: number
+  /** Optional idempotency context for deduplicating retries. */
+  eventId?: string
+  /** Optional store used to reserve and clear webhook delivery attempts. */
+  idempotencyStore?: {
+    reserveWebhookDelivery(subscriberId: string, eventId: string, idempotencyKey: string): Promise<boolean>
+    clearWebhookDeliveryAttempt(subscriberId: string, eventId: string): Promise<void>
+  }
 }
 
 const DEFAULT_WEBHOOK_RETRY = {
@@ -146,12 +155,12 @@ function isListData(data: unknown): data is unknown[] {
  * Chunk a list payload into smaller chunks that fit within the size cap.
  */
 function chunkListPayload(
-  basePayload: Omit<WebhookPayload, 'chunkId' | 'chunkIndex' | 'totalChunks' | 'payloadTruncated' | 'paginationUrl'>,
+  basePayload: WebhookPayload,
   sizeCap: number
 ): WebhookPayload[] {
   const chunks: WebhookPayload[] = []
   const data = basePayload.data
-  if (!isListData(data)) return [basePayload]
+  if (!isListData(data)) return [basePayload as any]
 
   const chunkId = generateChunkId()
   let currentChunkItems: unknown[] = []
@@ -159,11 +168,11 @@ function chunkListPayload(
   for (const item of data) {
     const testPayload: WebhookPayload = {
       ...basePayload,
-      data: [...currentChunkItems, item],
+      data: [...currentChunkItems, item] as unknown[],
       chunkId,
       chunkIndex: chunks.length,
       totalChunks: 0,
-    }
+    } as any
     const testPayloadStr = JSON.stringify(testPayload)
     if (Buffer.byteLength(testPayloadStr, 'utf8') <= sizeCap) {
       currentChunkItems.push(item)
@@ -171,22 +180,22 @@ function chunkListPayload(
       if (currentChunkItems.length > 0) {
         chunks.push({
           ...basePayload,
-          data: currentChunkItems,
+          data: currentChunkItems as unknown[],
           chunkId,
           chunkIndex: chunks.length,
           totalChunks: 0,
-        })
+        } as any)
         currentChunkItems = [item]
       } else {
         // Single item too big - we'll mark as truncated later
         chunks.push({
           ...basePayload,
-          data: [item],
+          data: [item] as unknown[],
           chunkId,
           chunkIndex: chunks.length,
           totalChunks: 0,
           payloadTruncated: true,
-        })
+        } as any)
         currentChunkItems = []
       }
     }
@@ -195,11 +204,11 @@ function chunkListPayload(
   if (currentChunkItems.length > 0) {
     chunks.push({
       ...basePayload,
-      data: currentChunkItems,
+      data: currentChunkItems as unknown[],
       chunkId,
       chunkIndex: chunks.length,
       totalChunks: 0,
-    })
+    } as any)
   }
 
   // Update totalChunks for all chunks
@@ -272,6 +281,19 @@ async function deliverSingleWebhook(
 
   // Create HTTPS agent with mTLS configuration if available
   const agent = createHttpsAgent(webhook, customHttpsAgent)
+
+  // --- SSRF protection: block private/internal network targets (before retry loop) ---
+  const hostCheck = checkHostBlocked(webhook.url)
+  if (hostCheck.blocked) {
+    logger.warn({ message: 'Webhook delivery blocked by SSRF guard', webhookId: webhook.id, reason: hostCheck.reason, host: hostCheck.host })
+    return {
+      webhookId: webhook.id,
+      success: false,
+      error: `Webhook target '${hostCheck.host}' is restricted: ${hostCheck.reason}`,
+      attempts: 0,
+      errorCode: 'SSRF_BLOCKED',
+    }
+  }
 
   let attempts = 0
   let lastError: string | undefined
@@ -439,30 +461,57 @@ export async function deliverWebhook(
   const payloadStr = JSON.stringify(payload)
   const payloadSize = Buffer.byteLength(payloadStr, 'utf8')
   let results: WebhookDeliveryResult[]
-  
-  if (payloadSize <= sizeCap) {
-    // Single payload delivery
-    const result = await deliverSingleWebhook(webhook, payload, options)
-    results = [result]
-  } else if (isListData(payload.data)) {
-    const chunks = chunkListPayload(payload, sizeCap)
-    results = []
-    for (const chunk of chunks) {
-      const result = await deliverSingleWebhook(webhook, chunk, options)
-      results.push(result)
-      if (!result.success) {
-        // Stop if any chunk fails
-        break
+
+  const shouldUseIdempotency = Boolean(options.eventId && options.idempotencyStore)
+  let reserved = false
+  if (shouldUseIdempotency) {
+    reserved = await options.idempotencyStore!.reserveWebhookDelivery(
+      webhook.id,
+      options.eventId!,
+      generateWebhookIdempotencyKey(webhook.id, options.eventId!)
+    )
+
+    if (!reserved) {
+      return options.returnAllChunks
+        ? [{ webhookId: webhook.id, success: true, skipped: true, attempts: 0 }]
+        : { webhookId: webhook.id, success: true, skipped: true, attempts: 0 }
+    }
+  }
+
+  try {
+    if (payloadSize <= sizeCap) {
+      // Single payload delivery
+      const result = await deliverSingleWebhook(webhook, payload, options)
+      results = [result]
+    } else if (isListData(payload.data)) {
+      const chunks = chunkListPayload(payload, sizeCap)
+      results = []
+      for (const chunk of chunks) {
+        const result = await deliverSingleWebhook(webhook, chunk, options)
+        results.push(result)
+        if (!result.success) {
+          // Stop if any chunk fails
+          break
+        }
       }
+    } else {
+      // Can't chunk - mark as truncated and send anyway
+      const truncatedPayload: WebhookPayload = {
+        ...payload,
+        payloadTruncated: true,
+      }
+      const result = await deliverSingleWebhook(webhook, truncatedPayload, options)
+      results = [result]
     }
-  } else {
-    // Can't chunk - mark as truncated and send anyway
-    const truncatedPayload: WebhookPayload = {
-      ...payload,
-      payloadTruncated: true,
+
+    if (reserved && results.some(result => !result.success)) {
+      await options.idempotencyStore!.clearWebhookDeliveryAttempt(webhook.id, options.eventId!)
     }
-    const result = await deliverSingleWebhook(webhook, truncatedPayload, options)
-    results = [result]
+  } catch (error) {
+    if (reserved) {
+      await options.idempotencyStore!.clearWebhookDeliveryAttempt(webhook.id, options.eventId!)
+    }
+    throw error
   }
 
   if (options.returnAllChunks) {
