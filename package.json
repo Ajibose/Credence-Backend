@@ -31,6 +31,7 @@
     "migrate:preflight": "tsx src/migrations/linter.ts pre-flight",
     "migrate:template": "tsx src/migrations/linter.ts template",
     "migrate:safety": "tsx src/migrations/linter.ts check --strict",
+    "test:db:reset": "npm run build && tsx scripts/reset-test-db.ts",
     "generate:openapi": "npx tsx scripts/generate-openapi.ts",
     "drill:horizon": "tsx scripts/horizon-failover-drill.ts",
     "drill:restore": "tsx scripts/restore-verify.ts"

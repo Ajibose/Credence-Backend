@@ -101,6 +101,15 @@ pnpm run migrate:dev
 DB_URL=postgresql://credence:credence@localhost:5433/credence_test pnpm run migrate:dev
 ```
 
+To drop, recreate, and re-apply all migrations on the test database in one step (same URL defaults as above):
+
+```bash
+docker compose -f docker-compose.test.yml up -d
+npm run test:db:reset
+```
+
+Uses `TEST_DATABASE_URL` when set; otherwise `src/config/testDatabase.ts` defaults. Only the `credence_test` database name is allowed.
+
 ---
 
 ## Test Commands

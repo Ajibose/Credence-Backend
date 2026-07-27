@@ -153,6 +153,7 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 | `npm run migrate`         | Run pending migrations (CI/production)     |
 | `npm run migrate:down`    | Rollback last migration                    |
 | `npm run migrate:dry-run` | Preview pending migrations without running |
+| `npm run test:db:reset`   | Drop, recreate, and migrate local test DB  |
 
 ## Developer Setup
 
