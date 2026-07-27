@@ -507,6 +507,28 @@ export const envSchema = z.object({
     .default('3600000')
     .transform(Number)
     .pipe(z.number().int().min(60000)), // minimum 1 minute
+
+  // Response compression
+  /**
+   * Master switch for the response-compression middleware (default: true).
+   * When false, the application never compresses responses; useful for local
+   * debugging without gzip overhead.
+   */
+  COMPRESSION_ENABLED: z
+    .string()
+    .default('true')
+    .transform((val) => val === 'true'),
+  /**
+   * Minimum response body size in bytes before compression is applied
+   * (default: 1024). Responses smaller than this are sent uncompressed to
+   * avoid wasting CPU on tiny payloads where the gzip header overhead exceeds
+   * the savings. Clamped to a safe band [0, 10 MiB].
+   */
+  COMPRESSION_THRESHOLD_BYTES: z
+    .string()
+    .default('1024')
+    .transform(Number)
+    .pipe(z.number().int().min(0).max(10485760)),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -676,6 +698,12 @@ export interface Config {
     ttlSeconds: number
     /** Interval in ms between sweeper runs. Default: 3600000 (1 h). */
     sweepIntervalMs: number
+  }
+  compression: {
+    /** Whether response compression is enabled. Default: true. */
+    enabled: boolean
+    /** Minimum response body size in bytes before compression is applied. Default: 1024. */
+    thresholdBytes: number
   }
 }
 
@@ -894,6 +922,10 @@ function mapEnvToConfig(env: Env): Config {
     sessionSweep: {
       ttlSeconds: env.SESSION_TTL_SECONDS,
       sweepIntervalMs: env.SESSION_SWEEP_INTERVAL_MS,
+    },
+    compression: {
+      enabled: env.COMPRESSION_ENABLED,
+      thresholdBytes: env.COMPRESSION_THRESHOLD_BYTES,
     },
   }
 
