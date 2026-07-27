@@ -321,7 +321,7 @@ describe('Admin Router - Strict Validation', () => {
     })
   })
 
-  describe('POST /api/admin/refresh-secrets', () => {
+  describe('POST /api/admin/reload-config', () => {
     // ────────────────────────────────────────────────────────────────────────
     // RBAC: only-admin
     // ────────────────────────────────────────────────────────────────────────
@@ -346,7 +346,7 @@ describe('Admin Router - Strict Validation', () => {
       }
 
       const res = await request(setup())
-        .post('/api/admin/refresh-secrets')
+        .post('/api/admin/reload-config')
         .send()
 
       expect(res.status).toBe(403)
@@ -366,7 +366,7 @@ describe('Admin Router - Strict Validation', () => {
       const parseSpy = vi.spyOn(dotenv.default, 'parse').mockReturnValue({ JWT_SECRET: 'short' })
 
       const res = await request(setup())
-        .post('/api/admin/refresh-secrets')
+        .post('/api/admin/reload-config')
         .send()
 
       expect(res.status).toBe(400)
