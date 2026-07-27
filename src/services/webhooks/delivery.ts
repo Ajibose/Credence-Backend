@@ -70,6 +70,9 @@ const DEFAULT_WEBHOOK_RETRY = {
  * Generate HMAC-SHA256 signature for webhook payload.
  */
 export function signPayload(payload: string, secret: string): string {
+  if (typeof secret !== 'string' || !secret) {
+    throw new TypeError('signPayload: secret must be a non-empty string')
+  }
   return createHmac('sha256', secret).update(payload).digest('hex')
 }
 
@@ -77,6 +80,7 @@ export function signPayload(payload: string, secret: string): string {
  * Constant-time comparison to prevent timing attacks on certificate pinning.
  */
 function constantTimeEqual(a: string, b: string): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false
   if (a.length !== b.length) return false
   let result = 0
   for (let i = 0; i < a.length; i++) {
