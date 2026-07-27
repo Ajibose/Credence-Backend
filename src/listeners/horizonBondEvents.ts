@@ -12,7 +12,7 @@ import { pool } from '../db/pool.js'
 import { register, Gauge } from 'prom-client'
 import { BoundedBackoff } from '../utils/backoff.js'
 import { getHorizonMetrics } from '../observability/horizonMetrics.js'
-import { bondOperationSchema, validateMessage } from './messageValidator.js'
+import { bondOperationSchema, DlqRouter, DlqReasonCode, validateAndRoute } from './messageValidator.js'
 
 export interface BondCreationHandle {
   stop: () => void;
@@ -42,11 +42,12 @@ const lastCheckpointGauge = new Gauge({
  * Subscribe to bond creation events from Horizon.
  * Opens exactly ONE stream. On error, reconnects with bounded
  * exponential-backoff-with-jitter (default: 500 ms base, 30 s cap).
+ *
+ * Invalid payloads are quarantined to the DLQ via `DlqRouter` and the
+ * cursor is NOT advanced past them, so they can be inspected and replayed.
  */
 export function subscribeBondCreationEvents(
-  replayService: {
-    captureFailure: (type: string, data: any, reason: string) => Promise<unknown>;
-  },
+  dlqRouter: DlqRouter,
   onEvent?: (event: {
     identity: { id: string };
     bond: { id: string; address: string; amount: string; duration: string | null };
@@ -73,16 +74,16 @@ export function subscribeBondCreationEvents(
           const newCursor = op.paging_token;
           try {
             if (op.type === "create_bond") {
-              const validation = validateMessage(bondOperationSchema, op);
+              const validation = await validateAndRoute(
+                bondOperationSchema,
+                STREAM_NAME,
+                op,
+                dlqRouter,
+              );
               if (!validation.valid) {
-                if (replayService?.captureFailure) {
-                  await replayService.captureFailure(STREAM_NAME, op, validation.detail || "Validation failed");
-                } else {
-                  console.error(`[${STREAM_NAME}] Validation failed for event ${op.id}: ${validation.detail}`);
-                }
                 return;
               }
-              const event = parseBondEvent(op);
+              const event = parseBondEvent(validation.data);
               await upsertIdentity(event.identity);
               await upsertBond(event.bond);
               if (cursorRepo) {
@@ -95,8 +96,13 @@ export function subscribeBondCreationEvents(
               console.log(`[${STREAM_NAME}] Processed event ${op.id}, cursor: ${newCursor}`);
             }
           } catch (err) {
+            await dlqRouter.route(
+              STREAM_NAME,
+              op,
+              DlqReasonCode.PROCESSING_ERROR,
+              err instanceof Error ? err.message : String(err),
+            );
             console.error(`[${STREAM_NAME}] Error processing event ${op.id}:`, err);
-            throw err;
           }
         },
         onerror: async (err: unknown) => {
