@@ -27,7 +27,7 @@ export function createWebhookAdminRouter(): Router {
    *
    * @requires webhooks:admin scope OR admin role
    */
-  router.post('/:id/rotate', requireUserAuth, async (req: Request, res: Response) => {
+  router.post('/:id/rotate', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { id } = req.params
       const admin = (req as AuthenticatedRequest).user!

@@ -36,9 +36,10 @@ import {
   revokeApiKeyBodySchema,
   issueImpersonationTokenBodySchema,
   replayEventBodySchema,
+  replayWebhookBodySchema,
   purgeCacheBodySchema,
 } from '../../schemas/admin.js'
-import type { ReplayEventBody, PurgeCacheBody } from '../../schemas/admin.js'
+import type { ReplayEventBody, ReplayWebhookBody, PurgeCacheBody } from '../../schemas/admin.js'
 import { cache } from '../../cache/redis.js'
 import { invalidateCache, invalidatePattern } from '../../cache/invalidation.js'
 import { z } from 'zod'

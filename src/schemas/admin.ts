@@ -160,4 +160,16 @@ export const purgeCacheResponseSchema = z.object({
 export type PurgeCacheBody = z.infer<typeof purgeCacheBodySchema>
 export type PurgeCacheResponse = z.infer<typeof purgeCacheResponseSchema>
 
+/**
+ * Request body schema for replaying a failed webhook delivery
+ * POST /api/admin/replay-webhook
+ */
+export const replayWebhookBodySchema = z
+  .object({
+    id: z.string().min(1, 'id is required'),
+  })
+  .strict()
+
+export type ReplayWebhookBody = z.infer<typeof replayWebhookBodySchema>
+
 
