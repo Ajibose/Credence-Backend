@@ -35,8 +35,6 @@ import {
 import { metricsMiddleware, register } from "./middleware/metrics.js";
 import { createCidrWhitelistMiddleware } from "./middleware/cidrWhitelist.js";
 import { createSafeRedirectMiddleware } from "./middleware/safeRedirect.js";
-
-// Add missing imports used in the router
 import {
   jsonBodyParser,
   requestSizeLimitErrorHandler,
@@ -48,9 +46,11 @@ import cspReportRouter from "./routes/cspReport.js";
 import { idempotencyMiddleware } from "./middleware/idempotency.js";
 import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
 import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
-
-import { clientVersionEchoMiddleware } from './middleware/clientVersionEcho.js'
-import { requestAttemptEchoMiddleware } from './middleware/requestAttemptEcho.js'
+import { clientVersionEchoMiddleware } from "./middleware/clientVersionEcho.js";
+import { requestAttemptEchoMiddleware } from "./middleware/requestAttemptEcho.js";
+import { RedisConnection } from "./cache/redis.js";
+import { createFaultInjectionRouter } from "./routes/faultInjection.js";
+import { cacheHeaderMiddleware } from "./middleware/cacheHeader.js";
 
 const app = express();
 
@@ -65,8 +65,6 @@ let rateLimitConfig: {
 try {
   rateLimitConfig = validateConfig(process.env).rateLimit;
 } catch {
-  // Fail-closed by default in production so a misconfigured startup cannot
-  // silently disable rate limiting and expose the API to abuse.
   const isProd = process.env.NODE_ENV === "production";
   rateLimitConfig = {
     enabled: true,
@@ -80,18 +78,27 @@ try {
 
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig);
 
-app.use(requestIdMiddleware);
-app.use(securityHeadersMiddleware);
+let globalTimeoutMs: number;
+try {
+  globalTimeoutMs = validateConfig(process.env).timeouts.global;
+} catch {
+  globalTimeoutMs = 30000;
+}
+const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
+
+let jwksCacheMaxAge: number;
+try {
+  jwksCacheMaxAge = validateConfig(process.env).jwt.jwksCacheMaxAgeSeconds;
+} catch {
+  jwksCacheMaxAge = 300;
+}
 
 app.use(requestIdMiddleware);
+app.use(securityHeadersMiddleware);
 app.use(cacheHeaderMiddleware);
 app.use(clientVersionEchoMiddleware);
 app.use(requestAttemptEchoMiddleware);
 app.use(timeoutBudgetMiddleware);
-
-// Debugging echo
-app.use(clientVersionEchoMiddleware)
-app.use(requestAttemptEchoMiddleware)
 
 const metricsCidrs = process.env.METRICS_ALLOWED_CIDRS
   ?.split(",")
@@ -121,14 +128,22 @@ app.use(gracefulDegradeMiddleware);
 app.use("/.well-known/jwks.json", createJwksRouter({ cacheMaxAgeSeconds: jwksCacheMaxAge }));
 
 const healthProbes = createDefaultProbes();
-app.use("/api/health", createHealthRouter({ ...healthProbes, isReady }));
+
+let redisClient: import("./cache/redis.js").RedisClient | undefined;
+if (process.env.REDIS_URL) {
+  try {
+    const conn = RedisConnection.getInstance();
+    conn.connect().catch(() => {});
+    redisClient = conn.getClient();
+  } catch {
+  }
+}
+
+app.use("/api/health", createHealthRouter({ ...healthProbes, isReady, redisClient }));
 app.use("/api/version", createVersionRouter());
 
 app.use("/api", rateLimitMiddleware);
 
-// ── Idempotency middleware ────────────────────────────────────────────────────
-// Must run after body parsing (jsonBodyParser) and before route handlers so the
-// full request body is available when computing the payload hash.
 try {
   const idempotencyConfig = validateConfig(process.env).idempotency;
   const idempotencyRepo = new IdempotencyRepository(pool);
@@ -139,9 +154,7 @@ try {
     }),
   );
 } catch {
-  // If config is invalid, idempotency middleware is safely skipped
 }
-// ─────────────────────────────────────────────────────────────────────────────
 
 try {
   const config = validateConfig(process.env);
@@ -153,7 +166,6 @@ try {
   const costMeterMiddleware = createCostMeterMiddleware(costMeterConfig, () => pool);
   app.use("/api", costMeterMiddleware);
 } catch {
-  // If config is invalid, cost metering is safely skipped
 }
 
 app.use("/api/trust", trustRouter);
@@ -167,10 +179,6 @@ app.use("/api/bulk", bulkRouter);
 
 app.use("/api/imports", createImportsRouter());
 
-// Defence-in-depth open-redirect guard: applied once here (rather than in
-// each admin route handler) so it covers every current and future 302 under
-// /api/admin/*, including the webhooks and feature-flags sub-routers mounted
-// below. See docs/SECURITY.md#open-redirect-protection.
 const adminRedirectAllowedHosts = process.env.ADMIN_REDIRECT_ALLOWED_HOSTS
   ?.split(",")
   .map((s) => s.trim())
@@ -196,6 +204,16 @@ app.use("/api/payouts", createPayoutsRouter());
 app.use("/api/reports", reportRouter);
 app.use(cspReportRouter);
 
+
+let devMode = false;
+try {
+  devMode = validateConfig(process.env).devMode;
+} catch {
+}
+app.use(
+  "/api/dev/fault-injection",
+  createFaultInjectionRouter({ devMode }),
+);
 
 app.use(errorHandler);
 

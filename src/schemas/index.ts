@@ -214,10 +214,10 @@ export {
 } from './version.js'
 
 export {
-  cspReportSchema,
-  cspReportDetailsSchema,
-  type CspReport,
-} from './cspReport.js'
-
+  faultInjectionRequestSchema,
+  faultInjectionResponseSchema,
+  type FaultInjectionRequest,
+  type FaultInjectionResponse,
+} from './faultInjection.js'
 
 
