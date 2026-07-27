@@ -24,6 +24,18 @@ vi.mock('../../middleware/metrics.js', () => ({
   recordStaleCacheRead: vi.fn()
 }))
 
+// Mock invalidationBus to prevent pool.ts from trying to connect to a real DB
+vi.mock('../invalidationBus.js', () => ({
+  getInvalidationBus: () => ({
+    publish: vi.fn().mockResolvedValue(undefined),
+    start: vi.fn().mockResolvedValue(undefined),
+    stop: vi.fn().mockResolvedValue(undefined),
+    addListener: vi.fn(),
+  }),
+  resetInvalidationBus: vi.fn(),
+  InvalidationBus: vi.fn(),
+}))
+
 describe('Cache Invalidation', () => {
   beforeEach(() => {
     vi.clearAllMocks()
