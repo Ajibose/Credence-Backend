@@ -374,7 +374,9 @@ The service includes a Redis-based caching layer with:
 - **Graceful fallback** - Continues working when Redis is unavailable
 - **Cache response header** - Appends `x-cache` header (`HIT`, `MISS`, or `STALE`) to responses for transparency
 
-See [docs/caching.md](./docs/caching.md) for detailed documentation.
+See [docs/caching.md](./docs/caching.md) for detailed documentation, and
+[docs/CACHE_INVENTORY.md](./docs/CACHE_INVENTORY.md) for the full list of
+cache namespaces and their TTLs.
 
 ## Developer SDK
 
