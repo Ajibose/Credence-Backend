@@ -53,9 +53,7 @@ describe('requireRole()', () => {
           it('returns 401 and does not call next', () => {
                const mw = requireRole('admin')
                const res = makeRes()
-               mw(makeReq(), res, next)
-               expect(res._status).toBe(401)
-               expect((res._body as any).error).toBe('Unauthenticated')
+               expect(() => mw(makeReq(), res, next)).toThrow('Unauthenticated')
                expect(next).not.toHaveBeenCalled()
           })
      })
@@ -72,10 +70,7 @@ describe('requireRole()', () => {
           it('returns 403 when role does not match', () => {
                const mw = requireRole('admin')
                const res = makeRes()
-               mw(makeReq({ id: '1', address: '0x1', role: 'user' }), res, next)
-               expect(res._status).toBe(403)
-               expect((res._body as any).error).toBe('Forbidden')
-               expect((res._body as any).actual).toBe('user')
+               expect(() => mw(makeReq({ id: '1', address: '0x1', role: 'user' }), res, next)).toThrow(/Forbidden/)
                expect(next).not.toHaveBeenCalled()
           })
      })
@@ -97,9 +92,7 @@ describe('requireRole()', () => {
           it('returns 403 for a role not in the list', () => {
                const mw = requireRole('admin', 'verifier')
                const res = makeRes()
-               mw(makeReq({ id: '1', address: '0x1', role: 'user' }), res, next)
-               expect(res._status).toBe(403)
-               expect((res._body as any).required).toEqual(['admin', 'verifier'])
+               expect(() => mw(makeReq({ id: '1', address: '0x1', role: 'user' }), res, next)).toThrow(/Forbidden/)
                expect(next).not.toHaveBeenCalled()
           })
      })
@@ -108,8 +101,7 @@ describe('requireRole()', () => {
           it('returns 403 when public caller hits an admin-only route', () => {
                const mw = requireRole('admin')
                const res = makeRes()
-               mw(makeReq({ id: '0', address: '0x0', role: 'public' }), res, next)
-               expect(res._status).toBe(403)
+               expect(() => mw(makeReq({ id: '0', address: '0x0', role: 'public' }), res, next)).toThrow(/Forbidden/)
                expect(next).not.toHaveBeenCalled()
           })
      })
@@ -124,8 +116,7 @@ describe('requireMinRole()', () => {
           it('returns 401', () => {
                const mw = requireMinRole('user')
                const res = makeRes()
-               mw(makeReq(), res, next)
-               expect(res._status).toBe(401)
+               expect(() => mw(makeReq(), res, next)).toThrow('Unauthenticated')
                expect(next).not.toHaveBeenCalled()
           })
      })
@@ -157,14 +148,12 @@ describe('requireMinRole()', () => {
                     vi.clearAllMocks()
                     const mw = requireMinRole(minRole)
                     const res = makeRes()
-                    mw(makeReq({ id: '1', address: '0x1', role: callerRole }), res, next)
                     if (expectAllowed) {
+                         mw(makeReq({ id: '1', address: '0x1', role: callerRole }), res, next)
                          expect(next).toHaveBeenCalledTimes(1)
                          expect(res._status).toBe(200)
                     } else {
-                         expect(res._status).toBe(403)
-                         expect((res._body as any).requiredMinRole).toBe(minRole)
-                         expect((res._body as any).actual).toBe(callerRole)
+                         expect(() => mw(makeReq({ id: '1', address: '0x1', role: callerRole }), res, next)).toThrow(/Forbidden/)
                          expect(next).not.toHaveBeenCalled()
                     }
                },
@@ -180,8 +169,7 @@ describe('requireAnyRole()', () => {
      it('returns 401 when unauthenticated', () => {
           const mw = requireAnyRole()
           const res = makeRes()
-          mw(makeReq(), res, next)
-          expect(res._status).toBe(401)
+          expect(() => mw(makeReq(), res, next)).toThrow('Unauthenticated')
           expect(next).not.toHaveBeenCalled()
      })
 
