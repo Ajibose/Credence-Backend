@@ -882,7 +882,36 @@ registry.registerPath({
   },
 });
 
+registry.registerPath({
+  method: 'post',
+  path: '/csp-report',
+  summary: 'CSP violation report endpoint',
+  description: 'Endpoint for browsers to post Content Security Policy violation reports.',
+  tags: ['Security'],
+  request: {
+    body: {
+      required: true,
+      content: {
+        'application/json': { schema: schemas.cspReportSchema },
+        'application/csp-report': { schema: schemas.cspReportSchema },
+      },
+    },
+  },
+  responses: {
+    204: {
+      description: 'Report received',
+    },
+    400: {
+      description: 'Validation error',
+      content: {
+        'application/json': { schema: z.any() },
+      },
+    },
+  },
+});
+
 const generator = new OpenApiGeneratorV3(registry.definitions);
+
 const document = generator.generateDocument({
   openapi: '3.0.0',
   info: { version: '1.0.0', title: 'Credence API', description: 'Generated OpenAPI documentation from Zod schemas' },

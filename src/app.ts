@@ -43,6 +43,8 @@ import {
 } from "./middleware/requestSizeLimit.js";
 import { createWsSubscriptionServer } from "./routes/ws.js";
 import reportRouter from "./routes/report.js";
+import cspReportRouter from "./routes/cspReport.js";
+
 import { idempotencyMiddleware } from "./middleware/idempotency.js";
 import { IdempotencyRepository } from "./db/repositories/idempotencyRepository.js";
 import { createTimeoutBudgetMiddleware } from "./middleware/timeoutBudget.js";
@@ -192,6 +194,8 @@ app.use("/api/analytics", createAnalyticsRouter(analyticsService));
 app.use("/api/payouts", createPayoutsRouter());
 
 app.use("/api/reports", reportRouter);
+app.use(cspReportRouter);
+
 
 app.use(errorHandler);
 

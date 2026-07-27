@@ -170,6 +170,18 @@ export class RequestTooLargeError extends AppError {
 }
 
 /**
+ * Specific error for missing required security headers.
+ */
+export class MissingSecurityHeaderError extends AppError {
+  constructor(
+    message: string = getErrorCatalogEntry(ErrorCodeRegistry.MISSING_SECURITY_HEADER).defaultMessage,
+    details?: unknown
+  ) {
+    super(message, ErrorCodeRegistry.MISSING_SECURITY_HEADER, undefined, details)
+  }
+}
+
+/**
  * Send a structured error response using the centralized error catalog.
  *
  * This is a convenience helper for route handlers that need to return an

@@ -58,6 +58,18 @@ it('includes preload directive in the HSTS header in non-production environment'
       expect(response.headers['strict-transport-security']).toContain('preload')
     })
 
+    it('uses Content-Security-Policy-Report-Only in production', async () => {
+      process.env.NODE_ENV = 'production'
+      
+      const response = await request(app).get('/test')
+      
+      expect(response.headers['content-security-policy']).toBeUndefined()
+      expect(response.headers['content-security-policy-report-only']).toBeDefined()
+      expect(response.headers['content-security-policy-report-only']).toContain("default-src 'self'")
+      expect(response.headers['content-security-policy-report-only']).toContain("report-uri /csp-report")
+    })
+
+
     it('sets Referrer-Policy header', async () => {
       const response = await request(app).get('/test')
       
@@ -125,6 +137,23 @@ it('includes preload directive in the HSTS header in non-production environment'
       expect(response.headers['referrer-policy']).toBeDefined()
       expect(response.headers['cross-origin-resource-policy']).toBeDefined()
     })
+
+    it('uses Content-Security-Policy-Report-Only in production via override fallback', async () => {
+      process.env.NODE_ENV = 'production'
+      app = express()
+      app.use(securityHeadersWithOverride)
+      app.get('/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/test')
+      
+      expect(response.headers['content-security-policy']).toBeUndefined()
+      expect(response.headers['content-security-policy-report-only']).toBeDefined()
+      expect(response.headers['content-security-policy-report-only']).toContain("default-src 'self'")
+      expect(response.headers['content-security-policy-report-only']).toContain("report-uri /csp-report")
+    })
+
 
     it('allows disabling CSP via override', async () => {
       app.use((req, res, next) => {
@@ -414,6 +443,22 @@ it('includes preload directive in the HSTS header in non-production environment'
       expect(response.status).toBe(200)
       expect(response.headers['content-security-policy']).toBeDefined()
     })
+
+    it('passes in production when report-only CSP is present', async () => {
+      process.env.NODE_ENV = 'production'
+      app.use(securityHeadersMiddleware)
+      app.use(checkSecurityHeaders)
+      app.get('/test', (req, res) => {
+        res.json({ message: 'test' })
+      })
+
+      const response = await request(app).get('/test')
+
+      expect(response.status).toBe(200)
+      expect(response.headers['content-security-policy-report-only']).toBeDefined()
+      expect(response.headers['content-security-policy']).toBeUndefined()
+    })
+
 
     it('reports only the missing headers', async () => {
       app.use((req, res, next) => {
