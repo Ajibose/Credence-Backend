@@ -12,6 +12,8 @@ import auditChainStatusRouter from './auditChainStatus.js'
 import settlementReconciliationRouter from './settlementReconciliation.js'
 import migrationsRouter from './migrations.js'
 import {
+  buildCursorPaginationLinks,
+  buildPaginationLinks,
   buildPaginationMeta,
   parsePaginationParams,
 } from "../../lib/pagination.js";
@@ -108,11 +110,14 @@ export function createAdminRouter(): Router {
         filters,
       )
 
+      const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
+
       res.status(200).json({
         success: true,
         data: {
           ...result,
           ...buildPaginationMeta(result.total, page, limit),
+          links: buildPaginationLinks(fullUrl, page, limit, result.total),
         },
       })
     } catch (error) {
@@ -335,11 +340,14 @@ export function createAdminRouter(): Router {
 
       const result = await adminService.getAuditLogs(user.id, user.email, filters, limit, offset, user)
 
+      const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
+
       res.status(200).json({
         success: true,
         data: {
           logs: result.logs,
           ...buildCursorPaginationMeta(result.hasNextPage, limit, result.nextCursor),
+          links: buildCursorPaginationLinks(fullUrl, limit, result.nextCursor),
         },
       })
     } catch (error) {
@@ -441,11 +449,13 @@ export function createAdminRouter(): Router {
 
       const { events, total } = await replayService.listFailedEvents(filters, limit, offset)
       const paginationMeta = buildPaginationMeta(total, page, limit)
+      const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`
 
       res.status(200).json({
         success: true,
         data: events,
         ...paginationMeta,
+        links: buildPaginationLinks(fullUrl, page, limit, total),
       })
     } catch (error: any) {
       next(error)

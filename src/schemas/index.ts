@@ -218,16 +218,8 @@ export {
 } from './version.js'
 
 export {
-  faultInjectionRequestSchema,
-  faultInjectionResponseSchema,
-  type FaultInjectionRequest,
-  type FaultInjectionResponse,
-} from './faultInjection.js'
+  paginationLinksSchema,
+  type PaginationLinks,
+} from './pagination.js'
 
-export {
-  authLoginBodySchema,
-  authRefreshBodySchema,
-  type AuthLoginBody,
-  type AuthRefreshBody,
-} from './auth.js'
 
