@@ -30,7 +30,7 @@ import { tenantContextMiddleware } from "./middleware/tenantContext.js";
 import { gracefulDegradeMiddleware } from "./middleware/gracefulDegrade.js";
 import { createDevResponseValidator } from "./middleware/validateResponse.js";
 import {
-  compressionMiddleware,
+  createCompressionMiddleware,
   compressionMetricsMiddleware,
 } from "./middleware/compression.js";
 import { metricsMiddleware, register } from "./middleware/metrics.js";
@@ -88,7 +88,24 @@ try {
 }
 const timeoutBudgetMiddleware = createTimeoutBudgetMiddleware(globalTimeoutMs);
 
-// ── Global middleware ─────────────────────────────────────────────────────────
+let jwksCacheMaxAge: number;
+try {
+  jwksCacheMaxAge = validateConfig(process.env).jwt.jwksCacheMaxAgeSeconds;
+} catch {
+  jwksCacheMaxAge = 300;
+}
+
+let compressionOpts: {
+  enabled: boolean;
+  thresholdBytes: number;
+} = { enabled: true, thresholdBytes: 1024 };
+try {
+  compressionOpts = validateConfig(process.env).compression;
+} catch {
+  // keep defaults
+}
+const compressionMiddleware = createCompressionMiddleware(compressionOpts);
+
 app.use(requestIdMiddleware);
 app.use(securityHeadersMiddleware);
 app.use(cacheHeaderMiddleware);

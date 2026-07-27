@@ -524,59 +524,27 @@ export const envSchema = z.object({
     .transform(Number)
     .pipe(z.number().int().min(60000)), // minimum 1 minute
 
-  // Analytics materialized-view refresh strategy.
-  //
-  // Master on/off switch for the background refresh job. The worker uses
-  // REFRESH MATERIALIZED VIEW CONCURRENTLY so reads are not blocked, but
-  // each refresh still acquires a SHARE UPDATE EXCLUSIVE lock that can stall
-  // autovacuum if the view is huge; the per-view statement_timeout
-  // (ANALYTICS_REFRESH_VIEW_TIMEOUT_MS) bounds that exposure.
-  ANALYTICS_REFRESH_ENABLED: z
+  // Response compression
+  /**
+   * Master switch for the response-compression middleware (default: true).
+   * When false, the application never compresses responses; useful for local
+   * debugging without gzip overhead.
+   */
+  COMPRESSION_ENABLED: z
     .string()
     .default('true')
     .transform((val) => val === 'true'),
-  /** Interval in ms between refresh ticks (default: 300_000 = 5 minutes). */
-  ANALYTICS_REFRESH_INTERVAL_MS: z
+  /**
+   * Minimum response body size in bytes before compression is applied
+   * (default: 1024). Responses smaller than this are sent uncompressed to
+   * avoid wasting CPU on tiny payloads where the gzip header overhead exceeds
+   * the savings. Clamped to a safe band [0, 10 MiB].
+   */
+  COMPRESSION_THRESHOLD_BYTES: z
     .string()
-    .default('300000')
+    .default('1024')
     .transform(Number)
-    .pipe(z.number().int().min(1000)),
-  /** Distributed-lock TTL in ms. Must exceed the expected refresh duration. */
-  ANALYTICS_REFRESH_LOCK_TTL_MS: z
-    .string()
-    .default('600000') // 10 minutes
-    .transform(Number)
-    .pipe(z.number().int().min(1000)),
-  /** Per-view statement_timeout in ms. Bounds SHARE UPDATE EXCLUSIVE exposure. */
-  ANALYTICS_REFRESH_VIEW_TIMEOUT_MS: z
-    .string()
-    .default('60000')
-    .transform(Number)
-    .pipe(z.number().int().min(1000)),
-  /** Max attempts per view before giving up on a transient DB error. */
-  ANALYTICS_REFRESH_MAX_ATTEMPTS_PER_VIEW: z
-    .string()
-    .default('3')
-    .transform(Number)
-    .pipe(z.number().int().min(1).max(10)),
-  /** Backoff between per-view retry attempts (ms). */
-  ANALYTICS_REFRESH_RETRY_BACKOFF_MS: z
-    .string()
-    .default('1000')
-    .transform(Number)
-    .pipe(z.number().int().min(0)),
-  /** Consecutive-failures threshold that trips the per-view cooldown. */
-  ANALYTICS_REFRESH_FAIL_COOLDOWN_THRESHOLD: z
-    .string()
-    .default('3')
-    .transform(Number)
-    .pipe(z.number().int().min(1)),
-  /** How long (ms) a view stays in cooldown after tripping the threshold. */
-  ANALYTICS_REFRESH_FAIL_COOLDOWN_MS: z
-    .string()
-    .default('60000')
-    .transform(Number)
-    .pipe(z.number().int().min(1000)),
+    .pipe(z.number().int().min(0).max(10485760)),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -747,23 +715,11 @@ export interface Config {
     /** Interval in ms between sweeper runs. Default: 3600000 (1 h). */
     sweepIntervalMs: number
   }
-  analyticsRefresh: {
-    /** Master on/off switch for the analytics refresh job. */
+  compression: {
+    /** Whether response compression is enabled. Default: true. */
     enabled: boolean
-    /** Interval in ms between scheduler ticks. */
-    intervalMs: number
-    /** DistributedLock TTL in ms. Must exceed worst-case refresh duration. */
-    lockTtlMs: number
-    /** Per-view `statement_timeout` enforced by the strategy. */
-    viewTimeoutMs: number
-    /** Max retry attempts on a transient SQLSTATE per view per tick. */
-    maxAttemptsPerView: number
-    /** Sleep (ms) between per-view retry attempts. */
-    retryBackoffMs: number
-    /** Consecutive-failure threshold that trips per-view cooldown. */
-    failCooldownThreshold: number
-    /** Cooldown window (ms) once the threshold is tripped. */
-    failCooldownMs: number
+    /** Minimum response body size in bytes before compression is applied. Default: 1024. */
+    thresholdBytes: number
   }
 }
 
@@ -1009,15 +965,9 @@ function mapEnvToConfig(env: Env): Config {
       ttlSeconds: env.SESSION_TTL_SECONDS,
       sweepIntervalMs: env.SESSION_SWEEP_INTERVAL_MS,
     },
-    analyticsRefresh: {
-      enabled: env.ANALYTICS_REFRESH_ENABLED,
-      intervalMs: env.ANALYTICS_REFRESH_INTERVAL_MS,
-      lockTtlMs: env.ANALYTICS_REFRESH_LOCK_TTL_MS,
-      viewTimeoutMs: env.ANALYTICS_REFRESH_VIEW_TIMEOUT_MS,
-      maxAttemptsPerView: env.ANALYTICS_REFRESH_MAX_ATTEMPTS_PER_VIEW,
-      retryBackoffMs: env.ANALYTICS_REFRESH_RETRY_BACKOFF_MS,
-      failCooldownThreshold: env.ANALYTICS_REFRESH_FAIL_COOLDOWN_THRESHOLD,
-      failCooldownMs: env.ANALYTICS_REFRESH_FAIL_COOLDOWN_MS,
+    compression: {
+      enabled: env.COMPRESSION_ENABLED,
+      thresholdBytes: env.COMPRESSION_THRESHOLD_BYTES,
     },
   }
 
