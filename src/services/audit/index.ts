@@ -79,7 +79,9 @@ export class AuditLogService {
     const resourceType =
       effectiveAction === AuditAction.LIST_USERS || effectiveAction === AuditAction.EXPORT_AUDIT_LOGS
         ? 'admin_user'
-        : 'user'
+        : effectiveAction === AuditAction.ROTATE_SIGNING_KEY
+          ? 'system'
+          : 'user'
 
     const mappedDetails: Record<string, unknown> = {
       ...(details ?? {}),

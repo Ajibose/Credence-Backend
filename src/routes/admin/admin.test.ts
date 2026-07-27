@@ -18,6 +18,7 @@ const { mockUserRef, mockIdempotencyStore, mockAuditLogService, mockKeyManager }
   },
   mockKeyManager: {
     initialize: vi.fn(),
+    isInitialized: vi.fn(),
     rotate: vi.fn(),
   },
 }))
@@ -59,6 +60,7 @@ vi.mock('../../services/audit/index.js', () => ({
     EXPORT_AUDIT_LOGS: 'EXPORT_AUDIT_LOGS',
     RELOAD_CONFIG: 'RELOAD_CONFIG',
     PURGE_CACHE: 'PURGE_CACHE',
+    ROTATE_SIGNING_KEY: 'ROTATE_SIGNING_KEY',
   },
 
 
@@ -201,6 +203,7 @@ describe('Admin Router - Strict Validation', () => {
     }
     mockIdempotencyStore.clear()
     mockKeyManager.initialize.mockResolvedValue(undefined)
+    mockKeyManager.isInitialized.mockReturnValue(true)
     mockKeyManager.rotate.mockResolvedValue({ newKid: 'new-kid', retiredKid: 'old-kid' })
   })
 
@@ -218,7 +221,7 @@ describe('Admin Router - Strict Validation', () => {
     })
 
     it('returns a typed service-unavailable error when the key manager is not ready', async () => {
-      mockKeyManager.initialize.mockRejectedValueOnce(new Error('KeyManager not initialized — call initialize() first'))
+      mockKeyManager.isInitialized.mockReturnValueOnce(false)
 
       const res = await request(setup())
         .post('/api/admin/rotate-signing-key')
@@ -227,6 +230,35 @@ describe('Admin Router - Strict Validation', () => {
       expect(res.status).toBe(503)
       expect(res.body.code).toBe('service_unavailable')
       expect(res.body.details?.reason).toBe('key_manager_uninitialized')
+    })
+
+    it('rejects unauthenticated callers with 401', async () => {
+      mockUserRef.current = null
+
+      const res = await request(setup())
+        .post('/api/admin/rotate-signing-key')
+        .send({})
+
+      expect(res.status).toBe(401)
+      expect(res.body.error).toBe('Unauthorized')
+      expect(mockKeyManager.rotate).not.toHaveBeenCalled()
+    })
+
+    it('rejects non-admin callers with 403', async () => {
+      mockUserRef.current = {
+        id: 'user-1',
+        email: 'user@test.com',
+        role: 'user',
+        tenantId: 'tenant-1',
+      }
+
+      const res = await request(setup())
+        .post('/api/admin/rotate-signing-key')
+        .send({})
+
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('Forbidden')
+      expect(mockKeyManager.rotate).not.toHaveBeenCalled()
     })
   })
 
