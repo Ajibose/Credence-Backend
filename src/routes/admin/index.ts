@@ -40,8 +40,9 @@ import {
   replayEventBodySchema,
   replayWebhookBodySchema,
   purgeCacheBodySchema,
+  resetCacheBodySchema,
 } from '../../schemas/admin.js'
-import type { ReplayEventBody, ReplayWebhookBody, PurgeCacheBody } from '../../schemas/admin.js'
+import type { ReplayEventBody, ReplayWebhookBody, PurgeCacheBody, ResetCacheBody } from '../../schemas/admin.js'
 import { cache } from '../../cache/redis.js'
 import { invalidateCache, invalidatePattern } from '../../cache/invalidation.js'
 import { z } from 'zod'
@@ -261,6 +262,56 @@ export function createAdminRouter(): Router {
     }
   );
 
+  /**
+   * POST /api/admin/reset-cache
+   *
+   * Clears a specific cache namespace on demand.
+   * Simpler alternative to /purge-cache for operators who just need
+   * to nuke an entire namespace without specifying keys or patterns.
+   * Gated behind admin authentication and audit-logged.
+   */
+  router.post(
+    '/reset-cache',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: resetCacheBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+        const { namespace } = req.body as ResetCacheBody
+
+        const clearedCount = await cache.clearNamespace(namespace)
+
+        // Audit log the reset action
+        void auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.RESET_CACHE,
+          namespace,
+          undefined,
+          { namespace, clearedCount },
+          undefined,
+          undefined,
+          req.ip,
+          requestId
+        )
+
+        res.status(200).json({
+          success: true,
+          message: `Cache namespace '${namespace}' reset`,
+          data: {
+            namespace,
+            clearedCount,
+          },
+        })
+      } catch (err) {
+        next(err)
+      }
+    }
+  );
 
   /**
    * POST /api/admin/keys/revoke

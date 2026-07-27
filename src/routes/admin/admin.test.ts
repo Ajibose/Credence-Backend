@@ -60,6 +60,7 @@ vi.mock('../../services/audit/index.js', () => ({
     EXPORT_AUDIT_LOGS: 'EXPORT_AUDIT_LOGS',
     RELOAD_CONFIG: 'RELOAD_CONFIG',
     PURGE_CACHE: 'PURGE_CACHE',
+    RESET_CACHE: 'RESET_CACHE',
     ROTATE_SIGNING_KEY: 'ROTATE_SIGNING_KEY',
   },
 
@@ -666,6 +667,102 @@ describe('Admin Router - Strict Validation', () => {
       const res = await request(setup())
         .post('/api/admin/purge-cache')
         .send({}) // Missing required namespace field
+
+      expect(res.status).toBe(400)
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('POST /api/admin/reset-cache', () => {
+    it('clears the cache namespace and returns the cleared key count', async () => {
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({ namespace: 'attestation' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.success).toBe(true)
+      expect(res.body.message).toContain('attestation')
+      expect(res.body.data).toEqual({
+        namespace: 'attestation',
+        clearedCount: expect.any(Number),
+      })
+    })
+
+    it('rejects unauthenticated callers with 401', async () => {
+      mockUserRef.current = null
+
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({ namespace: 'attestation' })
+
+      expect(res.status).toBe(401)
+      expect(res.body.error).toBe('Unauthorized')
+    })
+
+    it('rejects non-admin callers with 403', async () => {
+      mockUserRef.current = {
+        id: 'user-1',
+        email: 'user@test.com',
+        role: 'user',
+        tenantId: 'tenant-1',
+      }
+
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({ namespace: 'attestation' })
+
+      expect(res.status).toBe(403)
+      expect(res.body.error).toBe('Forbidden')
+    })
+
+    it('rejects requests missing the required namespace field', async () => {
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({})
+
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe('validation_failed')
+    })
+
+    it('rejects requests with extra unknown fields', async () => {
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({ namespace: 'attestation', maliciousField: 'attack' })
+
+      expect(res.status).toBe(400)
+      expect(res.body.code).toBe('validation_failed')
+    })
+
+    it('records actor, namespace and timestamp in audit trail on success', async () => {
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({ namespace: 'attestation' })
+
+      expect(res.status).toBe(200)
+      expect(res.body.success).toBe(true)
+
+      expect(mockAuditLogService.logAction).toHaveBeenCalledTimes(1)
+      const callArgs = mockAuditLogService.logAction.mock.calls[0]
+
+      expect(callArgs[0]).toBe('tenant-1')
+      expect(callArgs[1]).toBe('admin-1')
+      expect(callArgs[2]).toBe('admin@test.com')
+      expect(callArgs[3]).toBe('RESET_CACHE')
+      expect(callArgs[4]).toBe('attestation')
+      expect(callArgs[6]).toEqual({
+        namespace: 'attestation',
+        clearedCount: expect.any(Number),
+      })
+    })
+
+    it('does not record an audit log entry when validation fails', async () => {
+      expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
+
+      const res = await request(setup())
+        .post('/api/admin/reset-cache')
+        .send({})
 
       expect(res.status).toBe(400)
       expect(mockAuditLogService.logAction).not.toHaveBeenCalled()
