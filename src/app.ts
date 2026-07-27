@@ -18,6 +18,7 @@ import { BondService, BondStore } from "./services/bond/index.js";
 import { createBondRouter } from "./routes/bond.js";
 import { cache } from "./cache/redis.js";
 import { pool } from "./db/pool.js";
+import { responseTimeMiddleware } from "./middleware/responseTime.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { latencyBudgetMiddleware } from "./middleware/latencyBudget.js";
 import { errorHandler } from "./middleware/errorHandler.js";
@@ -113,17 +114,7 @@ try {
   jwksCacheMaxAge = 300;
 }
 
-let compressionOpts: {
-  enabled: boolean;
-  thresholdBytes: number;
-} = { enabled: true, thresholdBytes: 1024 };
-try {
-  compressionOpts = validateConfig(process.env).compression;
-} catch {
-  // keep defaults
-}
-const compressionMiddleware = createCompressionMiddleware(compressionOpts);
-
+app.use(responseTimeMiddleware);
 app.use(requestIdMiddleware);
 app.use(securityHeadersMiddleware);
 app.use(cacheHeaderMiddleware);
