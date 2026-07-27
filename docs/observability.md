@@ -351,19 +351,6 @@ const result = await txManager.withTransaction(
 
 The span is created via the `withSpan` utility and exported by the configured `SpanProcessor` (ConsoleSpanExporter in dev; OTLP in production).
 
-## Database Query Spans
-
-Every database query executed through the connection pools (`pool`, `workerPool`, `replicaPool`) generates an OpenTelemetry span named `db.query` with the following attributes:
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `db.system` | string | Set to `"postgresql"`. |
-| `db.statement` | string | The SQL query string executed. |
-| `db.pool` | string | Which pool ran the query (`"api"`, `"worker"`, or `"replica"`). |
-| `db.row_count` | number | The row count returned by the query (if successful). |
-
-If the query throws an exception, the span status is set to `ERROR`, and the exception is captured/recorded on the span.
-
 ## Slow Query Logging
 
 Every query issued through `pool`, `workerPool`, or `replicaPool` (`src/db/pool.ts`) is timed. Any query taking at least `SLOW_QUERY_THRESHOLD_MS` (default `1000`, i.e. 1 second; `0` disables the check) emits a `db:slow-query` structured log — `LogEventType.DB_SLOW_QUERY` — with the query's plan attached, and increments Prometheus metrics.

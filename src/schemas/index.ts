@@ -220,4 +220,10 @@ export {
   type FaultInjectionResponse,
 } from './faultInjection.js'
 
+export {
+  authLoginBodySchema,
+  authRefreshBodySchema,
+  type AuthLoginBody,
+  type AuthRefreshBody,
+} from './auth.js'
 

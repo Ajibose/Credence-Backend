@@ -51,6 +51,7 @@ import { requestAttemptEchoMiddleware } from "./middleware/requestAttemptEcho.js
 import { RedisConnection } from "./cache/redis.js";
 import { createFaultInjectionRouter } from "./routes/faultInjection.js";
 import { cacheHeaderMiddleware } from "./middleware/cacheHeader.js";
+import { createAuthRouter } from "./routes/auth.js";
 
 const app = express();
 
@@ -77,6 +78,24 @@ try {
 }
 
 const rateLimitMiddleware = createRateLimitMiddleware(rateLimitConfig);
+
+let authRateLimitConfig: {
+  enabled: boolean;
+  windowSec: number;
+  maxPerTenant: number;
+  failOpen: boolean;
+};
+try {
+  authRateLimitConfig = validateConfig(process.env).authRateLimit;
+} catch {
+  const isProd = process.env.NODE_ENV === "production";
+  authRateLimitConfig = {
+    enabled: true,
+    windowSec: 60,
+    maxPerTenant: 20,
+    failOpen: !isProd,
+  };
+}
 
 let globalTimeoutMs: number;
 try {
@@ -141,6 +160,8 @@ if (process.env.REDIS_URL) {
 
 app.use("/api/health", createHealthRouter({ ...healthProbes, isReady, redisClient }));
 app.use("/api/version", createVersionRouter());
+
+app.use("/api/auth", createAuthRouter(authRateLimitConfig));
 
 app.use("/api", rateLimitMiddleware);
 

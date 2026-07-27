@@ -368,6 +368,29 @@ export const envSchema = z.object({
       return process.env.NODE_ENV !== 'production'
     }),
 
+  // Auth endpoint rate limiting (login / refresh)
+  AUTH_RATE_LIMIT_ENABLED: z
+    .string()
+    .default('true')
+    .transform((val: string) => val === 'true'),
+  AUTH_RATE_LIMIT_WINDOW_SEC: z
+    .string()
+    .default('60')
+    .transform(Number)
+    .pipe(z.number().int().min(1).max(3600)),
+  AUTH_RATE_LIMIT_MAX_PER_TENANT: z
+    .string()
+    .default('20')
+    .transform(Number)
+    .pipe(z.number().int().min(1)),
+  AUTH_RATE_LIMIT_FAIL_OPEN: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (val !== undefined) return val === 'true'
+      return process.env.NODE_ENV !== 'production'
+    }),
+
   // Credits / billing
   ENDPOINT_COST_WEIGHTS: z.string().default('{"default":1,"/bulk/verify":10,"/reports":5}'),
   DEFAULT_MONTHLY_CREDITS: z
@@ -627,6 +650,12 @@ export interface Config {
     maxEnterprise: number
     failOpen: boolean
   }
+  authRateLimit: {
+    enabled: boolean
+    windowSec: number
+    maxPerTenant: number
+    failOpen: boolean
+  }
   reputation: {
     scoringModelVersion: string
     bondScoreMax: number
@@ -842,6 +871,12 @@ function mapEnvToConfig(env: Env): Config {
       maxPro: env.RATE_LIMIT_MAX_PRO,
       maxEnterprise: env.RATE_LIMIT_MAX_ENTERPRISE,
       failOpen: env.RATE_LIMIT_FAIL_OPEN,
+    },
+    authRateLimit: {
+      enabled: env.AUTH_RATE_LIMIT_ENABLED,
+      windowSec: env.AUTH_RATE_LIMIT_WINDOW_SEC,
+      maxPerTenant: env.AUTH_RATE_LIMIT_MAX_PER_TENANT,
+      failOpen: env.AUTH_RATE_LIMIT_FAIL_OPEN,
     },
     reputation: {
       scoringModelVersion: env.REPUTATION_MODEL_VERSION,
