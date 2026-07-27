@@ -11,10 +11,7 @@ import { pool, workerPool, replicaPool } from "./db/pool.js";
 import { redisConnection } from "./cache/redis.js";
 import { createShutdownMetrics } from "./observability/shutdownMetrics.js";
 import { AnalyticsService } from "./services/analytics/service.js";
-import {
-  AnalyticsRefreshWorker,
-  getAnalyticsRefreshIntervalMs,
-} from "./jobs/analyticsRefreshWorker.js";
+import { createAnalyticsRefreshWorker } from "./jobs/analyticsRefreshWorker.js";
 import { AnalyticsRefreshScheduler } from "./jobs/analyticsRefreshScheduler.js";
 import { createAnalyticsRefreshMetrics } from "./jobs/analyticsRefreshMetrics.js";
 import { SettlementReconciler } from "./jobs/settlementReconciler.js";
@@ -142,24 +139,37 @@ if (process.env.NODE_ENV !== "test") {
     installShutdownHandlers();
 
     if (process.env.DATABASE_URL) {
+      const analyticsConfig = config.analyticsRefresh;
       const thresholdSeconds = Number(
         process.env.ANALYTICS_STALENESS_SECONDS ?? "300",
       );
       const analyticsService = new AnalyticsService(pool, thresholdSeconds);
       const metrics = createAnalyticsRefreshMetrics();
-      const refreshWorker = new AnalyticsRefreshWorker(
-        analyticsService,
-        logger.info,
+
+      // The refresh worker uses the workerPool so background refresh
+      // traffic never starves the API/replica pools of connections.
+      const refreshWorker = createAnalyticsRefreshWorker({
+        pool: workerPool,
+        maxAttemptsPerView: analyticsConfig.maxAttemptsPerView,
+        retryBackoffMs: analyticsConfig.retryBackoffMs,
         metrics,
-      );
-      const intervalMs = getAnalyticsRefreshIntervalMs();
+        logger: logger.info,
+      });
 
       const refreshScheduler = new AnalyticsRefreshScheduler(refreshWorker, {
-        intervalMs,
-        runOnStart: true,
+        intervalMs: analyticsConfig.intervalMs,
+        runOnStart: analyticsConfig.enabled,
         logger: logger.info,
         metrics,
+        lockTtlMs: analyticsConfig.lockTtlMs,
+        failCooldownThreshold: analyticsConfig.failCooldownThreshold,
+        failCooldownMs: analyticsConfig.failCooldownMs,
       });
+      if (!analyticsConfig.enabled) {
+        logger.info(
+          "[Main] Analytics refresh is disabled by config (ANALYTICS_REFRESH_ENABLED=false)",
+        );
+      }
 
       const reconcilerJob = new SettlementReconciler(pool);
       const reconcilerScheduler = createScheduler(reconcilerJob, {
