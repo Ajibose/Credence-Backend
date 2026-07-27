@@ -223,6 +223,8 @@ Render with `npx @redocly/cli preview-docs docs/openapi.yaml` or paste into [edi
 
 For instructions on how to regenerate the spec after modifying schemas or routes, see **[docs/OPENAPI.md](docs/OPENAPI.md)**.
 
+The full request/response pipeline — from Zod schema definition to OpenAPI generation to frontend client types — is documented in **[docs/TYPE_SAFETY.md](docs/TYPE_SAFETY.md)**.
+
 ### Postman / Insomnia collection
 
 ```
