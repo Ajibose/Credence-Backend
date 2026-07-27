@@ -8746,6 +8746,8 @@ paths:
     get:
       summary: Get bond status
       description: Returns the current bond status and lifecycle state for a wallet address.
+        Reads are served from a Redis-backed cache (5-min TTL) with an `x-cache`
+        response header (`HIT` | `MISS`) for transparency.
       tags:
         - Bond
       parameters:
@@ -8761,6 +8763,14 @@ paths:
       responses:
         "200":
           description: Bond record found
+          headers:
+            x-cache:
+              description: "Cache status: HIT (served from cache) or MISS (freshly fetched)"
+              schema:
+                type: string
+                enum:
+                  - HIT
+                  - MISS
           content:
             application/json:
               schema:
