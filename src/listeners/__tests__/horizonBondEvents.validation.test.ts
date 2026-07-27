@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { z } from 'zod'
 
+const poolMocks = vi.hoisted(() => {
+  const mockClientQuery = vi.fn()
+  const mockClientRelease = vi.fn()
+  const mockClient = { query: mockClientQuery, release: mockClientRelease }
+  const mockPoolConnect = vi.fn().mockResolvedValue(mockClient)
+  const mockPoolQuery = vi.fn().mockResolvedValue({ rows: [] })
+  return { mockClientQuery, mockClientRelease, mockClient, mockPoolConnect, mockPoolQuery }
+})
+
 // Variables to store references to mock functions we need to access in tests
 let storedOnMessageHandler: vi.Mock | null = null
 let storedOnErrorHandler: vi.Mock | null = null
@@ -56,22 +65,32 @@ vi.mock('@stellar/stellar-sdk', () => {
   }
 })
 
+vi.mock('../../db/pool.js', () => ({
+  pool: { connect: poolMocks.mockPoolConnect, query: poolMocks.mockPoolQuery },
+}))
+
 // Mock identityService functions using vi.hoisted to avoid hoisting issues
-const { mockUpsertIdentity, mockUpsertBond } = vi.hoisted(() => ({
+const { mockUpsertIdentity, mockUpsertBond, mockUpsertCursor } = vi.hoisted(() => ({
   mockUpsertIdentity: vi.fn().mockResolvedValue({}),
   mockUpsertBond: vi.fn().mockResolvedValue({}),
+  mockUpsertCursor: vi.fn().mockResolvedValue({}),
 }))
 
 // Correct the path: from the test file (src/listeners/__tests__) to src/services is ../../services
 vi.mock('../../services/identityService.js', () => ({
   upsertIdentity: mockUpsertIdentity,
-  upsertBond: mockUpsertBond
+  upsertBond: mockUpsertBond,
+  upsertCursor: mockUpsertCursor
 }))
 
 // Import after mocking
 import { subscribeBondCreationEvents } from '../horizonBondEvents.js'
 import { bondOperationSchema } from '../messageValidator.js'
 import { validateMessage } from '../messageValidator.js'
+
+async function flushMicrotasks(): Promise<void> {
+  await new Promise(resolve => resolve(undefined))
+}
 
 describe('subscribeBondCreationEvents validation', () => {
   let mockReplayService: {
@@ -110,6 +129,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the valid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -121,9 +141,10 @@ describe('subscribeBondCreationEvents validation', () => {
       expect(mockReplayService.captureFailure).not.toHaveBeenCalled()
       // Should advance cursor and process event
       expect(mockOnEvent).toHaveBeenCalled()
-      // Should call upsertIdentity and upsertBond
+      // Should call upsertIdentity, upsertBond, and upsertCursor
       expect(mockUpsertIdentity).toHaveBeenCalled()
       expect(mockUpsertBond).toHaveBeenCalled()
+      expect(mockUpsertCursor).toHaveBeenCalled()
     })
   })
 
@@ -138,6 +159,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -156,6 +178,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
 
     it('should quarantine operation with invalid source_account', async () => {
@@ -168,6 +191,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -182,6 +206,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
 
     it('should quarantine operation with missing amount', async () => {
@@ -194,6 +219,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -208,6 +234,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
 
     it('should quarantine operation with non-numeric amount', async () => {
@@ -220,6 +247,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -234,6 +262,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
 
     it('should quarantine operation with negative amount', async () => {
@@ -246,6 +275,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -260,6 +290,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
 
     it('should not advance cursor on validation failure', async () => {
@@ -272,6 +303,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the invalid operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -286,6 +318,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
   })
 
@@ -301,6 +334,7 @@ describe('subscribeBondCreationEvents validation', () => {
       }
 
       const unsubscribe = subscribeBondCreationEvents(mockReplayService, mockOnEvent)
+      await flushMicrotasks()
       
       // Call the stored onMessage handler with the non-bond operation
       expect(storedOnMessageHandler).not.toBeNull()
@@ -315,6 +349,7 @@ describe('subscribeBondCreationEvents validation', () => {
       // Should NOT call upsert functions
       expect(mockUpsertIdentity).not.toHaveBeenCalled()
       expect(mockUpsertBond).not.toHaveBeenCalled()
+      expect(mockUpsertCursor).not.toHaveBeenCalled()
     })
   })
 })
