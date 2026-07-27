@@ -50,6 +50,8 @@ The server **fails fast** on startup if any required environment variable is mis
 npm run dev
 ```
 
+`npm run dev` automatically checks for pending database migrations before starting the dev server. If any are found, a reminder to run `npm run migrate:dev` is printed. Set `DATABASE_URL` in your environment to enable this check.
+
 **Production:**
 
 ```bash
@@ -140,7 +142,7 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 
 | Command                   | Description                                |
 | ------------------------- | ------------------------------------------ |
-| `npm run dev`             | Start with tsx watch                       |
+| `npm run dev`             | Check pending migrations, then start with tsx watch |
 | `npm run build`           | Compile TypeScript                         |
 | `npm start`               | Run compiled `dist/`                       |
 | `npm run lint`            | Run ESLint                                 |
