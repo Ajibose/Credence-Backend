@@ -7,7 +7,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import type { Request, Response, NextFunction } from 'express'
-import { requireRole, requireMinRole, requireAnyRole } from '../src/middleware/rbac.js'
+import { requireRole, requireMinRole, requireAnyRole, requirePermission } from '../src/middleware/rbac.js'
+import { rbacEngine } from '../src/services/rbac.service.js'
 import { RoleService } from '../src/services/roles.js'
 import type { Role } from '../src/types/rbac.js'
 
@@ -270,5 +271,60 @@ describe('RoleService', () => {
                expect(service.getRole('id-1')).toBe('user')
                expect(service.getRole('id-2')).toBe('user')
           })
+     })
+})
+
+// ---------------------------------------------------------------------------
+// requirePermission (RBAC Policy Engine)
+// ---------------------------------------------------------------------------
+
+describe('requirePermission()', () => {
+     it('allows admin to do anything', () => {
+          const mw = requirePermission('delete', 'any-resource')
+          const res = makeRes()
+          const req = makeReq({ id: '1', address: '0x1', role: 'admin' })
+          mw(req, res, next)
+          expect(next).toHaveBeenCalledTimes(1)
+          expect((req as any).rbacDecision.allowed).toBe(true)
+     })
+
+     it('allows user to read profile', () => {
+          const mw = requirePermission('read', 'profile')
+          const res = makeRes()
+          const req = makeReq({ id: '1', address: '0x1', role: 'user' })
+          mw(req, res, next)
+          expect(next).toHaveBeenCalledTimes(1)
+          expect((req as any).rbacDecision.allowed).toBe(true)
+     })
+
+     it('denies user to delete profile', () => {
+          const mw = requirePermission('delete', 'profile')
+          const res = makeRes()
+          const req = makeReq({ id: '1', address: '0x1', role: 'user' })
+          
+          expect(() => mw(req, res, next)).toThrow(/Forbidden/)
+          expect((req as any).rbacDecision.allowed).toBe(false)
+          expect(next).not.toHaveBeenCalled()
+     })
+
+     it('denies public user to read profile', () => {
+          const mw = requirePermission('read', 'profile')
+          const res = makeRes()
+          const req = makeReq({ id: '1', address: '0x1', role: 'public' })
+          
+          expect(() => mw(req, res, next)).toThrow(/Forbidden/)
+          expect((req as any).rbacDecision.allowed).toBe(false)
+          expect(next).not.toHaveBeenCalled()
+     })
+
+     it('handles explicit deny correctly', () => {
+          // Temporarily mock policies if needed, or rely on default deny
+          const mw = requirePermission('unknown', 'unknown')
+          const res = makeRes()
+          const req = makeReq({ id: '1', address: '0x1', role: 'user' })
+          
+          expect(() => mw(req, res, next)).toThrow(/Forbidden/)
+          expect((req as any).rbacDecision.allowed).toBe(false)
+          expect(next).not.toHaveBeenCalled()
      })
 })
