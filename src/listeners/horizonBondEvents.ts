@@ -5,10 +5,10 @@
  */
 
 import { Horizon } from '@stellar/stellar-sdk'
-import type { Pool } from 'pg'
-import { upsertIdentity, upsertBond } from '../services/identityService.js'
+import type { Pool, PoolClient } from 'pg'
+import { upsertIdentity, upsertBond, upsertCursor } from '../services/identityService.js'
+import { pool as defaultPool } from '../db/pool.js'
 import { CursorRepository } from '../db/repositories/cursorRepository.js'
-import { pool } from '../db/pool.js'
 import { register, Gauge } from 'prom-client'
 import { BoundedBackoff } from '../utils/backoff.js'
 import { getHorizonMetrics } from '../observability/horizonMetrics.js'
@@ -36,12 +36,12 @@ const lastCheckpointGauge = new Gauge({
   registers: [register],
 });
 
-
-
 /**
  * Subscribe to bond creation events from Horizon.
  * Opens exactly ONE stream. On error, reconnects with bounded
  * exponential-backoff-with-jitter (default: 500 ms base, 30 s cap).
+ * Persists cursor checkpoint after each successfully applied event
+ * so that the stream resumes from the last checkpoint on restart.
  */
 export function subscribeBondCreationEvents(
   replayService: {
@@ -51,9 +51,9 @@ export function subscribeBondCreationEvents(
     identity: { id: string };
     bond: { id: string; address: string; amount: string; duration: string | null };
   }) => void,
-  pool?: Pool
+  pool: Pool = defaultPool,
 ): BondCreationHandle {
-  const cursorRepo = pool ? new CursorRepository(pool) : undefined;
+  const cursorRepo = new CursorRepository(pool);
   const backoff = new BoundedBackoff({ baseMs: 500, maxMs: 30_000 });
   const metrics = getHorizonMetrics();
   let cursor = "now";
@@ -83,13 +83,23 @@ export function subscribeBondCreationEvents(
                 return;
               }
               const event = parseBondEvent(op);
-              await upsertIdentity(event.identity);
-              await upsertBond(event.bond);
-              if (cursorRepo) {
-                await cursorRepo.upsert({ streamName: STREAM_NAME, pagingToken: newCursor });
+              // Persist identity, bond, and cursor in a single transaction
+              // so that the cursor never advances past uncommitted state.
+              const client: PoolClient = await pool.connect();
+              try {
+                await client.query('BEGIN');
+                await upsertIdentity(event.identity, client);
+                await upsertBond(event.bond, client);
+                await upsertCursor({ streamName: STREAM_NAME, pagingToken: newCursor }, client);
+                await client.query('COMMIT');
+              } catch (txErr) {
+                await client.query('ROLLBACK');
+                throw txErr;
+              } finally {
+                client.release();
               }
               cursor = newCursor;
-              if (cursorRepo) updateMetrics(cursorRepo);
+              updateMetrics(cursorRepo);
               if (onEvent) onEvent(event);
               backoff.reset();
               console.log(`[${STREAM_NAME}] Processed event ${op.id}, cursor: ${newCursor}`);
@@ -117,25 +127,22 @@ export function subscribeBondCreationEvents(
   };
 
   const initAndStart = async () => {
-    if (cursorRepo) {
-      try {
-        const savedCursor = await cursorRepo.findByStreamName(STREAM_NAME);
-        if (savedCursor) {
-          cursor = savedCursor.pagingToken;
-          console.log(`[${STREAM_NAME}] Resuming from saved cursor: ${cursor}`);
-        } else {
-          console.log(`[${STREAM_NAME}] No saved cursor found, starting from: ${cursor}`);
-        }
-      } catch (err) {
-        console.error(`[${STREAM_NAME}] Failed to load saved cursor, falling back to: ${cursor}`, err);
+    try {
+      const savedCursor = await cursorRepo.findByStreamName(STREAM_NAME);
+      if (savedCursor) {
+        cursor = savedCursor.pagingToken;
+        console.log(`[${STREAM_NAME}] Resuming from saved cursor: ${cursor}`);
+      } else {
+        console.log(`[${STREAM_NAME}] No saved cursor found, starting from: ${cursor}`);
       }
+    } catch (err) {
+      console.error(`[${STREAM_NAME}] Failed to load saved cursor, falling back to: ${cursor}`, err);
     }
     startStream();
   };
 
   // Start exactly ONE stream
   initAndStart();
-
 
   return {
     stop: () => {
@@ -147,20 +154,18 @@ export function subscribeBondCreationEvents(
   };
 }
 
-async function updateMetrics(cursorRepo: CursorRepository) {
-  try {
-    const lag = await cursorRepo.getCursorLag(STREAM_NAME);
+function updateMetrics(cursorRepo: CursorRepository) {
+  cursorRepo.getCursorLag(STREAM_NAME).then(lag => {
     if (lag !== null) cursorLagGauge.set({ stream_name: STREAM_NAME }, lag);
-    const cursor = await cursorRepo.findByStreamName(STREAM_NAME);
+  }).catch(() => {});
+  cursorRepo.findByStreamName(STREAM_NAME).then(cursor => {
     if (cursor) {
       lastCheckpointGauge.set(
         { stream_name: STREAM_NAME },
         Math.floor(cursor.lastCheckpoint.getTime() / 1000)
       );
     }
-  } catch (err) {
-    console.error(`[${STREAM_NAME}] Error updating metrics:`, err);
-  }
+  }).catch(() => {});
 }
 
 function parseBondEvent(op: {

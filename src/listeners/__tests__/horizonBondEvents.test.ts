@@ -1,14 +1,28 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { CursorRepository } from "../../db/repositories/cursorRepository.js";
 
+const poolMocks = vi.hoisted(() => {
+  const mockClientQuery = vi.fn()
+  const mockClientRelease = vi.fn()
+  const mockClient = { query: mockClientQuery, release: mockClientRelease }
+  const mockPoolConnect = vi.fn().mockResolvedValue(mockClient)
+  const mockPoolQuery = vi.fn().mockResolvedValue({ rows: [] })
+  return { mockClientQuery, mockClientRelease, mockClient, mockPoolConnect, mockPoolQuery }
+})
+
 vi.mock("prom-client", () => ({
   register: {},
   Gauge: vi.fn().mockImplementation(function() { return { set: vi.fn() }; }),
 }));
 
+vi.mock("../../db/pool.js", () => ({
+  pool: { connect: poolMocks.mockPoolConnect, query: poolMocks.mockPoolQuery },
+}))
+
 vi.mock("../../services/identityService.js", () => ({
   upsertIdentity: vi.fn().mockResolvedValue(undefined),
   upsertBond: vi.fn().mockResolvedValue(undefined),
+  upsertCursor: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../observability/horizonMetrics.js", () => ({
@@ -52,6 +66,10 @@ vi.mock("@stellar/stellar-sdk", () => {
 
 import { subscribeBondCreationEvents } from "../horizonBondEvents.js";
 
+async function flushMicrotasks(): Promise<void> {
+  await new Promise(resolve => resolve(undefined))
+}
+
 describe("subscribeBondCreationEvents", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -60,33 +78,38 @@ describe("subscribeBondCreationEvents", () => {
     lastCursorVal = undefined;
   });
 
-  it("opens exactly ONE stream on subscribe", () => {
+  it("opens exactly ONE stream on subscribe", async () => {
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() });
+    await flushMicrotasks();
     expect(streamCallCount).toBe(1);
     h.stop();
   });
 
-  it("does NOT open a second stream — no duplicate", () => {
+  it("does NOT open a second stream — no duplicate", async () => {
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() });
+    await flushMicrotasks();
     expect(streamCallCount).toBe(1);
     h.stop();
   });
 
-  it("returns a stop() handle", () => {
+  it("returns a stop() handle", async () => {
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() });
+    await flushMicrotasks();
     expect(typeof h.stop).toBe("function");
     h.stop();
   });
 
-  it("stop() does not throw", () => {
+  it("stop() does not throw", async () => {
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() });
+    await flushMicrotasks();
     expect(() => h.stop()).not.toThrow();
   });
 
   it("invokes onEvent for create_bond operations", async () => {
     const onEvent = vi.fn();
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() }, onEvent);
-    await capturedHandlers.onmessage?.({
+    await flushMicrotasks();
+    await capturedHandlers.onmessage({
       type: "create_bond", id: "op1", paging_token: "tok1",
       source_account: "GABC", amount: "100", duration: "365",
     });
@@ -101,7 +124,8 @@ describe("subscribeBondCreationEvents", () => {
   it("does not invoke onEvent for non create_bond operations", async () => {
     const onEvent = vi.fn();
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() }, onEvent);
-    await capturedHandlers.onmessage?.({
+    await flushMicrotasks();
+    await capturedHandlers.onmessage({
       type: "payment", id: "op2", paging_token: "tok2",
       source_account: "GXYZ", amount: "50",
     });
@@ -111,6 +135,7 @@ describe("subscribeBondCreationEvents", () => {
 
   it("stop() prevents further reconnects after error", async () => {
     const h = subscribeBondCreationEvents({ captureFailure: vi.fn() });
+    await flushMicrotasks();
     h.stop();
     const countBefore = streamCallCount;
     await capturedHandlers.onerror?.(new Error("test"));
