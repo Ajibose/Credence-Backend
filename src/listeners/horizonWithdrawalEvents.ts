@@ -8,6 +8,8 @@ import {
   setHorizonListenerConfigured,
   setHorizonListenerRunning,
 } from '../services/health/runtimeState.js'
+import { withdrawalEventSchema } from '../schemas/queue.js'
+import { validateMessage } from './messageValidator.js'
 
 /**
  * Interface for bond withdrawal event data
@@ -200,14 +202,23 @@ export class HorizonWithdrawalListener {
         console.log(`[${STREAM_NAME}] Processing ${events.length} withdrawal events`)
         
         for (const event of events) {
-          await this.processWithdrawalEvent(event)
-          
-          // Persist cursor after each successfully processed event
+          const validation = validateMessage(withdrawalEventSchema, event)
+          if (!validation.valid) {
+            await this.replayService.captureFailure(
+              STREAM_NAME,
+              event,
+              `[${validation.reasonCode}] ${validation.detail}`,
+            )
+          } else {
+            await this.processWithdrawalEvent(event)
+          }
+
+          // Persist cursor after each processed event (validated or quarantined to DLQ)
           await this.cursorRepo.upsert({
             streamName: STREAM_NAME,
             pagingToken: event.pagingToken
           })
-          
+
           // Update local cursor only after successful persistence
           this.lastCursor = event.pagingToken
         }

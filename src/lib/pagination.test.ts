@@ -4,6 +4,7 @@ import fc from 'fast-check'
 process.env.JWT_SECRET = 'test-jwt-secret-at-least-32-chars-long'
 
 import {
+  buildLinkHeader,
   buildPaginationMeta,
   decodeCursor,
   encodeCursor,
@@ -11,6 +12,7 @@ import {
   PaginationValidationError,
   parsePaginationParams,
 } from './pagination.js'
+
 
 describe('pagination helpers', () => {
   describe('parsePaginationParams', () => {
@@ -256,7 +258,59 @@ describe('pagination helpers', () => {
       )
     })
   })
+
+  describe('buildLinkHeader', () => {
+    const baseUrl = '/api/items'
+
+    it('returns_null_when_total_is_zero', () => {
+      const header = buildLinkHeader({ baseUrl, page: 1, limit: 10, total: 0 })
+      expect(header).toBeNull()
+    })
+
+    it('first_page_has_no_prev_link', () => {
+      const header = buildLinkHeader({ baseUrl, page: 1, limit: 10, total: 50 })
+      expect(header).not.toBeNull()
+      expect(header).not.toContain('rel="prev"')
+      expect(header).toContain('rel="first"')
+      expect(header).toContain('rel="next"')
+      expect(header).toContain('rel="last"')
+      expect(header).toBe(
+        '</api/items?page=1&limit=10>; rel="first", </api/items?page=2&limit=10>; rel="next", </api/items?page=5&limit=10>; rel="last"',
+      )
+    })
+
+    it('last_page_has_no_next_link', () => {
+      const header = buildLinkHeader({ baseUrl, page: 5, limit: 10, total: 50 })
+      expect(header).not.toBeNull()
+      expect(header).not.toContain('rel="next"')
+      expect(header).toContain('rel="first"')
+      expect(header).toContain('rel="prev"')
+      expect(header).toContain('rel="last"')
+      expect(header).toBe(
+        '</api/items?page=1&limit=10>; rel="first", </api/items?page=4&limit=10>; rel="prev", </api/items?page=5&limit=10>; rel="last"',
+      )
+    })
+
+    it('middle_page_has_both_prev_and_next_links', () => {
+      const header = buildLinkHeader({ baseUrl, page: 3, limit: 10, total: 50 })
+      expect(header).toBe(
+        '</api/items?page=1&limit=10>; rel="first", </api/items?page=2&limit=10>; rel="prev", </api/items?page=4&limit=10>; rel="next", </api/items?page=5&limit=10>; rel="last"',
+      )
+    })
+
+    it('single_page_has_neither_prev_nor_next_link', () => {
+      const header = buildLinkHeader({ baseUrl, page: 1, limit: 10, total: 5 })
+      expect(header).not.toContain('rel="prev"')
+      expect(header).not.toContain('rel="next"')
+      expect(header).toContain('rel="first"')
+      expect(header).toContain('rel="last"')
+      expect(header).toBe(
+        '</api/items?page=1&limit=10>; rel="first", </api/items?page=1&limit=10>; rel="last"',
+      )
+    })
+  })
 })
+
 
 function try_decode_base64url(s: string): boolean {
   try {

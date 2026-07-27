@@ -49,6 +49,15 @@ export enum LogEventType {
   AUTH_LOGIN = "auth:login",
   AUTH_FAILURE = "auth:failure",
 
+  // ── Audit Chain Verifier Events ──
+  AUDIT_CHAIN_VERIFICATION = "audit-chain:verification",
+
+  // ── Audit Log Events ──
+  AUDIT_LOG_RECORDED = "audit:log-recorded",
+
+  // ── Database Events ──
+  DB_SLOW_QUERY = "db:slow-query",
+
   // ── Generic Fallback Events ──
   GENERIC_INFO = "generic:info",
   GENERIC_ERROR = "generic:error",
@@ -224,6 +233,40 @@ export const LOG_SCHEMAS: Record<LogEventType, Record<string, FieldSchema>> = {
     message: { type: "string" },
     method: { type: "string" },
     reason: { type: "string" },
+  },
+
+  [LogEventType.AUDIT_CHAIN_VERIFICATION]: {
+    valid: { type: "boolean" },
+    rowsChecked: { type: "number" },
+    violationCount: { type: "number" },
+    lastCheckedSeq: { type: "number" },
+    firstViolationSeq: { type: "number" },
+    checkedAt: { type: "string" },
+  },
+
+  [LogEventType.AUDIT_LOG_RECORDED]: {
+    tenantId: { type: "string" },
+    action: { type: "string" },
+    resourceType: { type: "string" },
+    status: { type: "string" },
+    requestId: { type: "string" },
+  },
+
+  // ── Database ──
+
+  [LogEventType.DB_SLOW_QUERY]: {
+    message: { type: "string" },
+    // Parameterized query text (e.g. "... WHERE id = $1") — bind values are
+    // never included, so this cannot leak PII/secrets passed as query params.
+    query: { type: "string" },
+    durationMs: { type: "number" },
+    thresholdMs: { type: "number" },
+    pool: { type: "string" },
+    // JSON-stringified EXPLAIN (FORMAT JSON) output. Kept as a string
+    // (rather than a nested object/array) because the plan's shape varies
+    // per query and per node type, which the allowlist schema can't
+    // usefully describe field-by-field.
+    plan: { type: "string" },
   },
 
   // ── Generic Fallback ──

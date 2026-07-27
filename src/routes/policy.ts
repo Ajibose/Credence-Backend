@@ -32,6 +32,7 @@ import {
   type PolicyOrgPathParams,
   type PolicyRulePathParams,
 } from '../schemas/policy.js'
+import { sendError, ErrorCode } from '../lib/errors.js'
 
 export function createPolicyRouter(): Router {
   const router = Router({ mergeParams: true })
@@ -60,7 +61,7 @@ export function createPolicyRouter(): Router {
         })
         res.status(201).json({ success: true, data: rule })
       } catch (err) {
-        res.status(500).json({ error: err instanceof Error ? err.message : 'Unknown error' })
+        sendError(res, ErrorCode.INTERNAL_SERVER_ERROR, err instanceof Error ? err.message : 'Unknown error')
       }
     },
   )
@@ -94,7 +95,7 @@ export function createPolicyRouter(): Router {
       const validatedReq = req as ValidatedRequest<PolicyRulePathParams>
       const rule = policyService.getRule(validatedReq.validated.params.ruleId)
       if (!rule) {
-        res.status(404).json({ error: 'Rule not found' })
+        sendError(res, ErrorCode.NOT_FOUND, 'Rule not found')
         return
       }
       res.json({ success: true, data: rule })
@@ -122,7 +123,8 @@ export function createPolicyRouter(): Router {
         res.json({ success: true, data: rule })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
-        res.status(msg.includes('not found') ? 404 : 500).json({ error: msg })
+        const code = msg.includes('not found') ? ErrorCode.NOT_FOUND : ErrorCode.INTERNAL_SERVER_ERROR
+        sendError(res, code, msg)
       }
     },
   )
@@ -142,7 +144,8 @@ export function createPolicyRouter(): Router {
         res.status(204).send()
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
-        res.status(msg.includes('not found') ? 404 : 500).json({ error: msg })
+        const code = msg.includes('not found') ? ErrorCode.NOT_FOUND : ErrorCode.INTERNAL_SERVER_ERROR
+        sendError(res, code, msg)
       }
     },
   )

@@ -25,6 +25,9 @@ type OutboxEventRow = {
   trace_id?: string | null
   span_id?: string | null
   tracestate?: string | null
+  shard_count?: number | null
+  shard_id?: number | null
+  publish_idempotency_key?: string | null
 }
 
 type OutboxQuarantineRow = {
@@ -86,6 +89,9 @@ function mapOutboxEvent(row: OutboxEventRow): OutboxEvent {
     traceId: row.trace_id,
     spanId: row.span_id,
     tracestate: row.tracestate,
+    shardCount: row.shard_count,
+    shardId: row.shard_id,
+    publishIdempotencyKey: row.publish_idempotency_key,
   }
 }
 
@@ -150,7 +156,9 @@ export class OutboxRepository {
     db: Queryable,
     consumerId: string,
     limit: number = 100,
-    leaseSeconds: number = 300
+    leaseSeconds: number = 300,
+    shardCount?: number,
+    shardId?: number
   ): Promise<OutboxEvent[]> {
     // Try with SKIP LOCKED first (real PostgreSQL)
     try {
@@ -171,23 +179,30 @@ export class OutboxRepository {
         trace_id: string | null
         span_id: string | null
         tracestate: string | null
+        shard_count: number | null
+        shard_id: number | null
+        publish_idempotency_key: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing',
              consumer_id = $2,
-             lease_expires_at = NOW() + ($3 || ' seconds')::interval
+             lease_expires_at = NOW() + ($3 || ' seconds')::interval,
+             shard_count = $4,
+             shard_id = $5
          WHERE id IN (
            SELECT id FROM event_outbox
            WHERE (status = 'pending' OR (status = 'processing' AND (lease_expires_at IS NULL OR lease_expires_at < NOW())))
              AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+             AND ($4::int IS NULL OR $5::int IS NULL OR ('x'||substr(md5(id::text),1,8))::bit(32)::int % $4 = $5)
            ORDER BY created_at ASC
            LIMIT $1
            FOR UPDATE SKIP LOCKED
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status,
                    retry_count, max_retries, created_at, processed_at, error_message,
-                   consumer_id, lease_expires_at, trace_id, span_id, tracestate`,
-        [limit, consumerId, leaseSeconds.toString()]
+                   consumer_id, lease_expires_at, trace_id, span_id, tracestate,
+                   shard_count, shard_id, publish_idempotency_key`,
+        [limit, consumerId, leaseSeconds.toString(), shardCount ?? null, shardId ?? null]
       )
 
       return result.rows.map(mapOutboxEvent)
@@ -210,22 +225,29 @@ export class OutboxRepository {
         trace_id: string | null
         span_id: string | null
         tracestate: string | null
+        shard_count: number | null
+        shard_id: number | null
+        publish_idempotency_key: string | null
       }>(
         `UPDATE event_outbox
          SET status = 'processing',
              consumer_id = $2,
-             lease_expires_at = NOW() + ($3 || ' seconds')::interval
+             lease_expires_at = NOW() + ($3 || ' seconds')::interval,
+             shard_count = $4,
+             shard_id = $5
          WHERE id IN (
            SELECT id FROM event_outbox
            WHERE (status = 'pending' OR (status = 'processing' AND (lease_expires_at IS NULL OR lease_expires_at < NOW())))
              AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+             AND ($4::int IS NULL OR $5::int IS NULL OR ('x'||substr(md5(id::text),1,8))::bit(32)::int % $4 = $5)
            ORDER BY created_at ASC
            LIMIT $1
          )
          RETURNING id, aggregate_type, aggregate_id, event_type, payload, status,
                    retry_count, max_retries, created_at, processed_at, error_message,
-                   consumer_id, lease_expires_at, trace_id, span_id, tracestate`,
-        [limit, consumerId, leaseSeconds.toString()]
+                   consumer_id, lease_expires_at, trace_id, span_id, tracestate,
+                   shard_count, shard_id, publish_idempotency_key`,
+        [limit, consumerId, leaseSeconds.toString(), shardCount ?? null, shardId ?? null]
       )
 
       return result.rows.map(mapOutboxEvent)
@@ -262,7 +284,7 @@ export class OutboxRepository {
   async releaseClaims(db: Queryable, consumerId: string): Promise<number> {
     const result = await db.query<{ count: string }>(
       `UPDATE event_outbox
-       SET status = 'pending', consumer_id = NULL, lease_expires_at = NULL
+       SET status = 'pending', consumer_id = NULL, lease_expires_at = NULL, publish_idempotency_key = NULL
        WHERE consumer_id = $1 AND status = 'processing'`,
       [consumerId]
     )
@@ -385,14 +407,55 @@ export class OutboxRepository {
     }
   }
 
+  async getOldestPendingEventLagSeconds(db: Queryable): Promise<number> {
+    const result = await db.query<{ lag_seconds: string | null }>(
+      `SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::text AS lag_seconds
+       FROM event_outbox
+       WHERE status IN ('pending', 'processing')`
+    )
+
+    const lagSeconds = result.rows[0]?.lag_seconds
+    return lagSeconds !== null && lagSeconds !== undefined
+      ? Number(lagSeconds)
+      : 0
+  }
+
   /**
    * Mark an event as successfully published.
    */
   async markPublished(db: Queryable, eventId: bigint): Promise<void> {
     await db.query(
       `UPDATE event_outbox
-       SET status = 'published', processed_at = NOW(), consumer_id = NULL, lease_expires_at = NULL
+       SET status = 'published', processed_at = NOW(), consumer_id = NULL, lease_expires_at = NULL, publish_idempotency_key = NULL
        WHERE id = $1`,
+      [eventId.toString()]
+    )
+  }
+
+  /**
+   * Atomically set a publish idempotency key on an event.
+   * If a key is already present the event was already published by a
+   * previous (crashed) attempt and the caller should skip to markPublished.
+   *
+   * @returns true if the key was set (first attempt), false if already present
+   */
+  async trySetPublishIdempotencyKey(db: Queryable, eventId: bigint, key: string): Promise<boolean> {
+    const result = await db.query<{ id: string }>(
+      `UPDATE event_outbox
+       SET publish_idempotency_key = $2
+       WHERE id = $1 AND publish_idempotency_key IS NULL
+       RETURNING id`,
+      [eventId.toString(), key]
+    )
+    return (result.rowCount ?? 0) > 0
+  }
+
+  /**
+   * Clear the publish idempotency key so the event can be retried.
+   */
+  async clearPublishIdempotencyKey(db: Queryable, eventId: bigint): Promise<void> {
+    await db.query(
+      `UPDATE event_outbox SET publish_idempotency_key = NULL WHERE id = $1`,
       [eventId.toString()]
     )
   }
@@ -402,7 +465,7 @@ export class OutboxRepository {
    * If max retries exceeded, status remains 'failed'.
    */
   async markFailed(db: Queryable, eventId: bigint, errorMessage: string): Promise<{ status: string; retryCount: number }> {
-    // Step 1: increment retry_count, set status and clear lease/consumer, clear next_attempt_at for now
+    // Step 1: increment retry_count, set status and clear lease/consumer, clear next_attempt_at and idempotency key for now
     const upd = await db.query<{
       retry_count: number
       max_retries: number
@@ -414,7 +477,8 @@ export class OutboxRepository {
            processed_at = CASE WHEN retry_count + 1 >= max_retries THEN NOW() ELSE NULL END,
            consumer_id = NULL,
            lease_expires_at = NULL,
-           next_attempt_at = NULL
+           next_attempt_at = NULL,
+           publish_idempotency_key = NULL
        WHERE id = $1
        RETURNING retry_count, max_retries`,
       [eventId.toString(), errorMessage]
