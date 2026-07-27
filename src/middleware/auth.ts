@@ -213,7 +213,7 @@ export const API_KEY_TO_USER: Record<string, string> = {
  * DB-backed key validator. Mapping of scopes is performed below.
  */
 export function requireApiKey(requiredScope: ApiScope) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     // Accept key from X-API-Key header or Authorization: Bearer <key>
     let apiKey = req.headers["x-api-key"] as string | undefined;
     if (!apiKey) {
@@ -235,7 +235,7 @@ export function requireApiKey(requiredScope: ApiScope) {
     let dbKey: StoredApiKey | null = null
 
     if (!grantedScopes) {
-      dbKey = validateApiKey(apiKey)
+      dbKey = await validateApiKey(apiKey)
       if (dbKey) {
         grantedScopes = dbKey.scopes.map((s): ApiScope => {
           if (s === 'full') return ApiScope.ENTERPRISE
@@ -338,11 +338,11 @@ export function requireAdminRole(
  * app.use('/api/admin', requireUserAuth, requireAdminRole, adminRouter)
  * ```
  */
-export function requireUserAuth(
+export async function requireUserAuth(
   req: Request,
   res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   const authReq = req as AuthenticatedRequest;
   const authHeader = req.headers.authorization;
 
@@ -356,7 +356,7 @@ export function requireUserAuth(
 
   const raw = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-  const key = validateApiKey(raw);
+  const key = await validateApiKey(raw);
   if (!key) {
     res.status(401).json({
       error: "Unauthorized",

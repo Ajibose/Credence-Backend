@@ -282,3 +282,64 @@ export function buildCursorEnvelope<T>(
     },
   }
 }
+
+export interface LinkHeaderOptions {
+  baseUrl: string
+  page: number
+  limit: number
+  total: number
+}
+
+/**
+ * Builds an RFC 5988 Link header string for page/limit based pagination.
+ *
+ * Rules:
+ * - First page (page <= 1) has NO 'prev' link.
+ * - Last page (page * limit >= total) has NO 'next' link.
+ * - 'first' and 'last' links are always included when total > 0.
+ *
+ * Example:
+ * `<http://api.example.com/items?page=1&limit=10>; rel="first", <http://api.example.com/items?page=3&limit=10>; rel="next", <http://api.example.com/items?page=5&limit=10>; rel="last"`
+ */
+export function buildLinkHeader(options: LinkHeaderOptions): string | null {
+  const { baseUrl, page, limit, total } = options
+
+  if (total <= 0) {
+    return null
+  }
+
+  const lastPage = Math.max(1, Math.ceil(total / limit))
+  const links: string[] = []
+
+  // Helper to format URL with page and limit
+  const formatUrl = (p: number) => {
+    const url = new URL(baseUrl, 'http://localhost')
+    url.searchParams.set('page', String(p))
+    url.searchParams.set('limit', String(limit))
+    // Return relative or full URL path + query string based on baseUrl input
+    if (baseUrl.startsWith('http://') || baseUrl.startsWith('https://')) {
+      return url.toString()
+    }
+    return `${url.pathname}${url.search}`
+  }
+
+  // 'first' link
+  links.push(`<${formatUrl(1)}>; rel="first"`)
+
+  // 'prev' link: only included if page > 1
+  if (page > 1) {
+    const prevPage = Math.min(page - 1, lastPage)
+    links.push(`<${formatUrl(prevPage)}>; rel="prev"`)
+  }
+
+  // 'next' link: only included if page < lastPage
+  if (page < lastPage) {
+    links.push(`<${formatUrl(page + 1)}>; rel="next"`)
+  }
+
+  // 'last' link
+  links.push(`<${formatUrl(lastPage)}>; rel="last"`)
+
+  return links.join(', ')
+}
+

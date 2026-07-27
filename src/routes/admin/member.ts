@@ -14,7 +14,7 @@
  *  POST   /api/admin/orgs/:orgId/members/:memberId/restore  Restore a deleted member
  */
 
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import {
   AuthenticatedRequest,
   requireUserAuth,
@@ -25,11 +25,19 @@ import {
   buildPaginationMeta,
   PaginationValidationError,
 } from '../../lib/pagination.js'
+import { validate } from '../../middleware/validate.js'
+import {
+  inviteMemberBodySchema,
+  updateMemberRoleBodySchema,
+  type InviteMemberBody,
+  type UpdateMemberRoleBody,
+} from '../../schemas/index.js'
 import { pool } from '../../db/pool.js'
 import { auditLogService } from '../../services/audit/index.js'
 import type { MemberRole } from '../../services/members/types.js'
 import { MemberService } from '../../services/members/factory.ts'
 import { MemberRepository } from '../../repositories/member.repository.ts'
+import { sendError, ErrorCode } from '../../lib/errors.js'
 
 const VALID_MEMBER_ROLES: MemberRole[] = ['owner', 'admin', 'member']
 
@@ -58,7 +66,7 @@ export function createMembersRouter(): Router {
    *   -H "Authorization: Bearer <ADMIN_API_KEY_RAW>"
    * ```
    */
-  router.get('/', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
+  router.get('/', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authReq = req as AuthenticatedRequest
       const { orgId } = req.params
@@ -68,11 +76,7 @@ export function createMembersRouter(): Router {
         pagination = parsePaginationParams(req.query as Record<string, unknown>, { defaultLimit: 50 })
       } catch (err) {
         if (err instanceof PaginationValidationError) {
-          res.status(400).json({
-            error: 'InvalidRequest',
-            message: 'Invalid pagination parameters',
-            details: err.details,
-          })
+          sendError(res, ErrorCode.VALIDATION_FAILED, 'Invalid pagination parameters', err.details)
           return
         }
         throw err
@@ -98,10 +102,7 @@ export function createMembersRouter(): Router {
         },
       })
     } catch (err) {
-      res.status(500).json({
-        error: 'InternalError',
-        message: err instanceof Error ? err.message : 'Unknown error',
-      })
+      next(err)
     }
   })
 
@@ -124,29 +125,20 @@ export function createMembersRouter(): Router {
    *   -d '{"userId":"user-99","email":"alice@example.com","role":"member"}'
    * ```
    */
-  router.post('/', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
-    try {
-      const authReq = req as AuthenticatedRequest
-      const { orgId } = req.params
-      const { userId, email, role } = req.body as {
-        userId?: string
-        email?: string
-        role?: string
-      }
+  router.post(
+    '/',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: inviteMemberBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const { orgId } = req.params
+        const { userId, email, role } = req.validated!.body as InviteMemberBody
 
-      if (!userId || !email) {
-        res.status(400).json({
-          error: 'InvalidRequest',
-          message: 'Missing required fields: userId, email',
-        })
-        return
-      }
 
       if (role && !VALID_MEMBER_ROLES.includes(role as MemberRole)) {
-        res.status(400).json({
-          error: 'InvalidRequest',
-          message: `Invalid role. Must be one of: ${VALID_MEMBER_ROLES.join(', ')}`,
-        })
+        sendError(res, ErrorCode.VALIDATION_FAILED, `Invalid role. Must be one of: ${VALID_MEMBER_ROLES.join(', ')}`)
         return
       }
 
@@ -161,10 +153,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isConflict = message.includes('already active')
-      res.status(isConflict ? 409 : 400).json({
-        error: isConflict ? 'Conflict' : 'BadRequest',
-        message,
-      })
+      const code = isConflict ? ErrorCode.CONFLICT : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -174,19 +164,17 @@ export function createMembersRouter(): Router {
    *
    * @body {string} role - New role: 'owner' | 'admin' | 'member'
    */
-  router.patch('/:memberId', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
-    try {
-      const authReq = req as AuthenticatedRequest
-      const { memberId } = req.params
-      const { role } = req.body as { role?: string }
+  router.patch(
+    '/:memberId',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: updateMemberRoleBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const { memberId } = req.params
+        const { role } = req.validated!.body as UpdateMemberRoleBody
 
-      if (!role || !VALID_MEMBER_ROLES.includes(role as MemberRole)) {
-        res.status(400).json({
-          error: 'InvalidRequest',
-          message: `Invalid or missing role. Must be one of: ${VALID_MEMBER_ROLES.join(', ')}`,
-        })
-        return
-      }
 
       const result = await memberService.updateMemberRole(
         authReq.user!.tenantId,
@@ -199,10 +187,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isNotFound = message.includes('not found')
-      res.status(isNotFound ? 404 : 400).json({
-        error: isNotFound ? 'NotFound' : 'BadRequest',
-        message,
-      })
+      const code = isNotFound ? ErrorCode.NOT_FOUND : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -214,7 +200,7 @@ export function createMembersRouter(): Router {
    * are set.  The member can be restored via the restore endpoint.
    * After deletion the same user can be re-invited (new row, new membership).
    */
-  router.delete('/:memberId', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
+  router.delete('/:memberId', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authReq = req as AuthenticatedRequest
       const { memberId } = req.params
@@ -230,10 +216,8 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       const isNotFound = message.includes('not found') || message.includes('already deleted')
-      res.status(isNotFound ? 404 : 400).json({
-        error: isNotFound ? 'NotFound' : 'BadRequest',
-        message,
-      })
+      const code = isNotFound ? ErrorCode.NOT_FOUND : ErrorCode.VALIDATION_FAILED
+      sendError(res, code, message)
     }
   })
 
@@ -245,7 +229,7 @@ export function createMembersRouter(): Router {
    * (org, user) pair — use the existing membership instead.
    * Returns 404 if the member ID is unknown or the member was never deleted.
    */
-  router.post('/:memberId/restore', requireUserAuth, requireAdminRole, async (req: Request, res: Response) => {
+  router.post('/:memberId/restore', requireUserAuth, requireAdminRole, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const authReq = req as AuthenticatedRequest
       const { memberId } = req.params
@@ -261,14 +245,14 @@ export function createMembersRouter(): Router {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unknown error'
       if (message.includes('already exists')) {
-        res.status(409).json({ error: 'Conflict', message })
+        sendError(res, ErrorCode.CONFLICT, message)
         return
       }
       if (message.includes('not found') || message.includes('already active')) {
-        res.status(404).json({ error: 'NotFound', message })
+        sendError(res, ErrorCode.NOT_FOUND, message)
         return
       }
-      res.status(500).json({ error: 'InternalError', message })
+      sendError(res, ErrorCode.INTERNAL_SERVER_ERROR, message)
     }
   })
 
