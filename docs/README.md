@@ -12,4 +12,5 @@ This directory contains additional documentation for the Credence Backend.
 - **[Event Ordering Guarantees](EVENT_ORDERING.md)** – ordering guarantees and guidelines for downstream consumers.
 - **[Environment Deployment Guide](DEPLOY.md)** – step-by-step deployment instructions for development, staging, and production environments.
 
+- **[Input Validation Guide](INPUT_VALIDATION.md)** – how we validate request inputs (path params, query, body) and surface errors.
 
