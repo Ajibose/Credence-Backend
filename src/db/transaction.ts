@@ -1,6 +1,22 @@
-import type { Pool, PoolClient } from 'pg'
+import { Pool, type PoolClient } from 'pg'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { RequestSnapshotsRepository } from './repositories/requestSnapshotsRepository.js'
 import { dbTxnDurationSeconds, dbTxnSavepoints } from '../observability/index.js'
+
+export const transactionStorage = new AsyncLocalStorage<PoolClient>()
+export const disableRedirectionStorage = new AsyncLocalStorage<boolean>()
+
+const originalPoolQuery = Pool.prototype.query
+Pool.prototype.query = function (this: Pool, ...args: any[]): any {
+  const activeClient = transactionStorage.getStore()
+  const isRedirectionDisabled = disableRedirectionStorage.getStore()
+  if (activeClient && !isRedirectionDisabled) {
+    return disableRedirectionStorage.run(true, () => {
+      return (activeClient.query as any)(...args)
+    })
+  }
+  return (originalPoolQuery as any).apply(this, args)
+}
 
 /** PostgreSQL error code emitted when lock_timeout fires (lock_not_available). */
 export const PG_LOCK_TIMEOUT_CODE = "55P03";
@@ -155,6 +171,20 @@ export class TransactionManager {
     timeouts?: Partial<LockTimeoutConfig>,
   ) {
     this.timeouts = { ...FALLBACK_TIMEOUTS, ...timeouts };
+
+    if (this.pool && typeof this.pool.query === 'function') {
+      const originalQuery = this.pool.query;
+      this.pool.query = function (this: any, ...args: any[]): any {
+        const activeClient = transactionStorage.getStore();
+        const isRedirectionDisabled = disableRedirectionStorage.getStore();
+        if (activeClient && !isRedirectionDisabled) {
+          return disableRedirectionStorage.run(true, () => {
+            return (activeClient.query as any)(...args);
+          });
+        }
+        return originalQuery.apply(this, args);
+      } as any;
+    }
   }
 
   /**
@@ -189,6 +219,12 @@ export class TransactionManager {
       timeoutMs ??
       (policy !== undefined ? this.timeouts[policy] : this.timeouts.default);
 
+    const activeClient = transactionStorage.getStore();
+    if (activeClient) {
+      // Propagation: already inside a transaction, reuse the active client.
+      return await fn(activeClient);
+    }
+
     let attempts = 0;
 
     while (true) {
@@ -219,7 +255,9 @@ export class TransactionManager {
         }
 
         const budgetedClient = createBudgetedClient(client, startTime, maxDurationMs, maxSavepoints, savepointCountRef);
-        const result = await fn(budgetedClient);
+        const result = await transactionStorage.run(budgetedClient, async () => {
+          return await fn(budgetedClient);
+        });
 
         await client.query("COMMIT");
         // Record metrics on successful commit
