@@ -8,6 +8,10 @@ import {
   type RetryPolicy,
   type RetryPolicyOverrides,
 } from '../lib/retryPolicy.js'
+import {
+  type ExtendedRetryPolicy,
+  type ExtendedRetryPolicyOverrides,
+} from '../clients/retryExecutor.js'
 
 dotenv.config()
 
@@ -296,6 +300,18 @@ export const envSchema = z.object({
   OUTBOUND_RETRY_WEBHOOK_MAX_DELAY_MS: z.coerce.number().int().min(1).optional(),
   OUTBOUND_RETRY_WEBHOOK_BACKOFF_MULTIPLIER: z.coerce.number().min(1).optional(),
   OUTBOUND_RETRY_WEBHOOK_JITTER_STRATEGY: z.enum(['none', 'full', 'equal']).optional(),
+
+  // Custom retryable errors and status codes
+  OUTBOUND_RETRY_DEFAULT_RETRYABLE_STATUS_CODES: z.string().optional(),
+  OUTBOUND_RETRY_DEFAULT_RETRYABLE_ERRORS: z.string().optional(),
+
+  OUTBOUND_RETRY_SOROBAN_RETRYABLE_STATUS_CODES: z.string().optional(),
+  OUTBOUND_RETRY_SOROBAN_RETRYABLE_ERRORS: z.string().optional(),
+  OUTBOUND_RETRY_SOROBAN_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
+
+  OUTBOUND_RETRY_WEBHOOK_RETRYABLE_STATUS_CODES: z.string().optional(),
+  OUTBOUND_RETRY_WEBHOOK_RETRYABLE_ERRORS: z.string().optional(),
+  OUTBOUND_RETRY_WEBHOOK_TIMEOUT_MS: z.coerce.number().int().min(1).optional(),
 
   // Timeout budgets
   TIMEOUT_GLOBAL_MS: z
@@ -615,8 +631,8 @@ export interface Config {
   }
   outboundHttp: {
     retry: {
-      defaults: RetryPolicy
-      providers: Record<string, RetryPolicyOverrides | undefined>
+      defaults: ExtendedRetryPolicy
+      providers: Record<string, ExtendedRetryPolicyOverrides | undefined>
     }
   }
   rateLimit: {
@@ -691,7 +707,7 @@ function parseCostWeights(raw: string): Record<string, number> {
   }
 }
 
-function hasRetryOverride(overrides: RetryPolicyOverrides): boolean {
+function hasRetryOverride(overrides: ExtendedRetryPolicyOverrides): boolean {
   return Object.values(overrides).some((value) => value !== undefined)
 }
 
@@ -701,28 +717,48 @@ function createRetryOverride(params: {
   maxDelayMs?: number
   backoffMultiplier?: number
   jitterStrategy?: RetryJitterStrategy
-}): RetryPolicyOverrides | undefined {
-  const overrides: RetryPolicyOverrides = {
+  retryableErrors?: string[]
+  retryableStatusCodes?: number[]
+  timeoutMs?: number
+}): ExtendedRetryPolicyOverrides | undefined {
+  const overrides: ExtendedRetryPolicyOverrides = {
     maxAttempts: params.maxAttempts,
     baseDelayMs: params.baseDelayMs,
     maxDelayMs: params.maxDelayMs,
     backoffMultiplier: params.backoffMultiplier,
     jitterStrategy: params.jitterStrategy,
+    retryableErrors: params.retryableErrors,
+    retryableStatusCodes: params.retryableStatusCodes,
+    timeoutMs: params.timeoutMs,
   }
 
   return hasRetryOverride(overrides) ? overrides : undefined
 }
 
-function mapEnvToConfig(env: Env): Config {
-  const defaultRetryPolicy = enforceRetryPolicyCaps({
-    maxAttempts: env.OUTBOUND_RETRY_MAX_ATTEMPTS,
-    baseDelayMs: env.OUTBOUND_RETRY_BASE_DELAY_MS,
-    maxDelayMs: env.OUTBOUND_RETRY_MAX_DELAY_MS,
-    backoffMultiplier: env.OUTBOUND_RETRY_BACKOFF_MULTIPLIER,
-    jitterStrategy: env.OUTBOUND_RETRY_JITTER_STRATEGY,
-  })
+const parseCommaSeparatedNumbers = (val?: string): number[] | undefined => {
+  if (!val) return undefined
+  return val.split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n))
+}
 
-  const providerPolicies: Record<string, RetryPolicyOverrides | undefined> = {}
+const parseCommaSeparatedStrings = (val?: string): string[] | undefined => {
+  if (!val) return undefined
+  return val.split(',').map(s => s.trim()).filter(s => s.length > 0)
+}
+
+function mapEnvToConfig(env: Env): Config {
+  const defaultRetryPolicy = {
+    ...enforceRetryPolicyCaps({
+      maxAttempts: env.OUTBOUND_RETRY_MAX_ATTEMPTS,
+      baseDelayMs: env.OUTBOUND_RETRY_BASE_DELAY_MS,
+      maxDelayMs: env.OUTBOUND_RETRY_MAX_DELAY_MS,
+      backoffMultiplier: env.OUTBOUND_RETRY_BACKOFF_MULTIPLIER,
+      jitterStrategy: env.OUTBOUND_RETRY_JITTER_STRATEGY,
+    }),
+    retryableErrors: parseCommaSeparatedStrings(env.OUTBOUND_RETRY_DEFAULT_RETRYABLE_ERRORS),
+    retryableStatusCodes: parseCommaSeparatedNumbers(env.OUTBOUND_RETRY_DEFAULT_RETRYABLE_STATUS_CODES),
+  }
+
+  const providerPolicies: Record<string, ExtendedRetryPolicyOverrides | undefined> = {}
 
   const sorobanOverride = createRetryOverride({
     maxAttempts: env.OUTBOUND_RETRY_SOROBAN_MAX_ATTEMPTS,
@@ -730,6 +766,9 @@ function mapEnvToConfig(env: Env): Config {
     maxDelayMs: env.OUTBOUND_RETRY_SOROBAN_MAX_DELAY_MS,
     backoffMultiplier: env.OUTBOUND_RETRY_SOROBAN_BACKOFF_MULTIPLIER,
     jitterStrategy: env.OUTBOUND_RETRY_SOROBAN_JITTER_STRATEGY,
+    retryableErrors: parseCommaSeparatedStrings(env.OUTBOUND_RETRY_SOROBAN_RETRYABLE_ERRORS),
+    retryableStatusCodes: parseCommaSeparatedNumbers(env.OUTBOUND_RETRY_SOROBAN_RETRYABLE_STATUS_CODES),
+    timeoutMs: env.OUTBOUND_RETRY_SOROBAN_TIMEOUT_MS,
   })
 
   if (sorobanOverride) {
@@ -742,6 +781,9 @@ function mapEnvToConfig(env: Env): Config {
     maxDelayMs: env.OUTBOUND_RETRY_WEBHOOK_MAX_DELAY_MS,
     backoffMultiplier: env.OUTBOUND_RETRY_WEBHOOK_BACKOFF_MULTIPLIER,
     jitterStrategy: env.OUTBOUND_RETRY_WEBHOOK_JITTER_STRATEGY,
+    retryableErrors: parseCommaSeparatedStrings(env.OUTBOUND_RETRY_WEBHOOK_RETRYABLE_ERRORS),
+    retryableStatusCodes: parseCommaSeparatedNumbers(env.OUTBOUND_RETRY_WEBHOOK_RETRYABLE_STATUS_CODES),
+    timeoutMs: env.OUTBOUND_RETRY_WEBHOOK_TIMEOUT_MS,
   })
 
   if (webhookOverride) {
