@@ -65,6 +65,21 @@ At startup the app parses `process.env` through a Zod schema (`envSchema` in
 > legacy `DB_LOCK_TIMEOUT_READONLY` / `_DEFAULT` / `_CRITICAL` names — prefer
 > the `_MS` names above.
 
+## Long transaction reaper
+
+Defence-in-depth job that terminates backends holding a transaction open too
+long (`src/jobs/longTransactionReaper.ts`). Unlike `DB_STATEMENT_TIMEOUT_MS`,
+this also catches idle-in-transaction sessions and multi-statement
+transactions with slow app-level pauses between statements — both hold
+locks and block autovacuum without ever tripping a per-statement timeout.
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `DB_LONG_TRANSACTION_REAPER_ENABLED` | `true` | Master on/off switch. |
+| `DB_LONG_TRANSACTION_MAX_AGE_MS` | `30000` | Transactions open longer than this are terminated via `pg_terminate_backend`. |
+| `DB_LONG_TRANSACTION_REAPER_INTERVAL_MS` | `10000` | How often `pg_stat_activity` is scanned. |
+| `DB_LONG_TRANSACTION_REAPER_DRY_RUN` | `false` | When `true`, over-age transactions are logged/counted but not terminated. |
+
 ## Authentication and JWT key rotation
 
 | Variable | Default | Constraint | Notes |
