@@ -6,6 +6,8 @@ import {
   UserRole,
 } from "../../middleware/auth.js";
 import erasureProofRouter from './erasureProof.js'
+import { keyManager } from '../../services/keyManager/index.js'
+import { rotateSigningKeyBodySchema } from '../../schemas/admin.js'
 import auditChainStatusRouter from './auditChainStatus.js'
 import settlementReconciliationRouter from './settlementReconciliation.js'
 import migrationsRouter from './migrations.js'
@@ -284,6 +286,68 @@ export function createAdminRouter(): Router {
       next(error);
     }
   });
+
+  /**
+   * POST /api/admin/rotate-signing-key
+   *
+   * Manually rotate the JWT signing key.  Retires the active key
+   * (keeping it valid for the configured grace window) and generates a fresh
+   * PS256 keypair.
+   *
+   * If the {@link KeyManager} has never been initialised in this process
+   * (e.g. test or first-boot replica), surfaces a typed `503 service_unavailable`
+   * with `details.reason = 'key_manager_uninitialized'`.  Operators can
+   * trigger bootstrapping by restarting the process.
+   *
+   * Audit-logged as `AuditAction.ROTATE_SIGNING_KEY`.
+   */
+  router.post(
+    '/rotate-signing-key',
+    requireUserAuth,
+    requireAdminRole,
+    validate({ body: rotateSigningKeyBodySchema }),
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const authReq = req as AuthenticatedRequest
+        const admin = authReq.user!
+        const requestId = (req as any).requestId
+
+        if (!keyManager.isInitialized()) {
+          sendError(res, ErrorCode.SERVICE_UNAVAILABLE, 'Key manager not initialized', {
+            reason: 'key_manager_uninitialized',
+          })
+          return
+        }
+
+        const result = await keyManager.rotate()
+
+        void auditLogService.logAction(
+          admin.tenantId,
+          admin.id,
+          admin.email,
+          AuditAction.ROTATE_SIGNING_KEY,
+          'system',
+          undefined,
+          { activeKid: result.newKid, retiredKid: result.retiredKid },
+          'success',
+          undefined,
+          req.ip,
+          requestId,
+        )
+
+        res.status(200).json({
+          success: true,
+          data: {
+            activeKid: result.newKid,
+            retiredKid: result.retiredKid,
+            rotatedAt: new Date().toISOString(),
+          },
+        })
+      } catch (err) {
+        next(err)
+      }
+    },
+  )
 
   /**
    * POST /api/admin/impersonate

@@ -20,6 +20,9 @@ import { createAnalyticsRefreshMetrics } from "./jobs/analyticsRefreshMetrics.js
 import { SettlementReconciler } from "./jobs/settlementReconciler.js";
 import { createScheduler } from "./jobs/scheduler.js";
 import { keyManager } from "./services/keyManager/index.js";
+import { initializeAuth } from "./lifecycle.js";
+import { KeyRotationScheduler } from "./jobs/keyRotationScheduler.js";
+import { validateConfig } from "./config/index.js";
 import { GracefulShutdownManager } from "./gracefulShutdown.js";
 import { FailedInboundEventsSweeper } from "./jobs/failedInboundEventsSweeper.js";
 import { PgStatActivitySnapshotJob } from "./jobs/pgStatActivitySnapshotJob.js";
@@ -60,6 +63,7 @@ let invalidationBus: ReturnType<typeof getInvalidationBus> | null = null;
 let requestSnapshotsSweeper: RequestSnapshotsSweeper | null = null;
 let idempotencyKeySweeper: IdempotencyKeySweeper | null = null;
 let expiredSessionsSweeper: ExpiredSessionsSweeper | null = null;
+let keyRotationScheduler: KeyRotationScheduler | null = null;
 
 function installShutdownHandlers(): void {
   if (!shutdownManager) return;
@@ -105,6 +109,19 @@ if (process.env.NODE_ENV !== "test") {
 
   try {
     const config = loadConfig();
+
+    // Bootstrap the JWT signing key BEFORE accepting traffic so the
+    // `/.well-known/jwks.json` endpoint and JWT signing respond with
+    // real data from the first request. Failure is fatal.
+    await initializeAuth().catch((bootstrapErr) => {
+      logger.error(
+        `[Main] Aborting startup — KeyManager bootstrap failed: ${
+          bootstrapErr instanceof Error ? bootstrapErr.message : String(bootstrapErr)
+        }`,
+        bootstrapErr,
+      );
+      process.exit(1);
+    });
 
     server = app.listen(config.port, () => {
       logger.info(`Credence API listening on port ${config.port}`);
@@ -315,6 +332,26 @@ if (process.env.NODE_ENV !== "test") {
       logger.error(`Failed to start cache invalidation bus: ${message}`, error);
     }
 
+    // Start JWT signing-key rotation scheduler.
+    // Rotation interval is configurable (KEY_ROTATION_INTERVAL_SECONDS, default 24h).
+    // The pruning tick is hourly so retired keys are GC'd even if rotation halts.
+    try {
+      const jwtConfig = validateConfig(process.env).jwt;
+      const rotationIntervalMs = jwtConfig.keyRotationIntervalSeconds * 1000;
+      keyRotationScheduler = new KeyRotationScheduler({
+        rotationIntervalMs,
+        pruneIntervalMs: 60 * 60 * 1000,
+        logger: logger.info,
+      });
+      keyRotationScheduler.start();
+      logger.info(
+        `[Main] Key Rotation Scheduler started (rotate every ${jwtConfig.keyRotationIntervalSeconds}s, prune every 3600s)`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      logger.error(`Failed to start Key Rotation Scheduler: ${message}`, error);
+    }
+
     shutdownManager?.setScheduler(scheduler);
     shutdownManager?.setOutboxJob(outboxJob);
     shutdownManager?.setWss(wss);
@@ -339,6 +376,10 @@ if (process.env.NODE_ENV !== "test") {
         if (longTransactionReaper) {
           logger.info("[Main] Stopping Long Transaction Reaper");
           longTransactionReaper.stop();
+        }
+        if (keyRotationScheduler) {
+          logger.info("[Main] Stopping Key Rotation Scheduler");
+          keyRotationScheduler.stop();
         }
         return originalShutdown(signal ?? "SIGTERM");
       };
