@@ -3,6 +3,13 @@ import { ApiKeysRepository } from '../db/repositories/apiKeysRepository.js'
 import { pool } from '../db/pool.js'
 
 export type KeyScope = 'read' | 'full' | string   // extended to accept granular scope strings
+export enum ApiKeyScope {
+  BOND_READ = 'bond:read',
+  BOND_WRITE = 'bond:write',
+  TRUST_READ = 'trust:read',
+  TRUST_WRITE = 'trust:write',
+  ATTESTATION_WRITE = 'attestation:write',
+}
 export type SubscriptionTier = 'free' | 'pro' | 'enterprise'
 
 export interface StoredApiKey {
@@ -62,24 +69,24 @@ function extractPrefix(rawKey: string): string {
  * Generate and store a new API key.
  *
  * @param ownerId  Identifier of the key owner (user/org ID)
- * @param scope    Primary access scope: 'read' (default) or 'full', or a granular scope string
+ * @param scopeOrScopes Primary scope or array of scopes.
  * @param tier     Subscription tier controlling rate limits (default: 'free')
- * @param scopes   Optional explicit list of granted scopes. When provided, overrides `scope`.
  * @returns        Key metadata including the raw key (shown once only)
  */
 export async function generateApiKey(
   ownerId: string,
-  scopes: KeyScope[] = [],
+  scopeOrScopes: KeyScope | KeyScope[] = [],
   tier: SubscriptionTier = 'free',
-  scopes?: string[],
-): CreateApiKeyResult {
+): Promise<CreateApiKeyResult> {
   const random = randomBytes(32).toString('hex') // 64 hex chars
   const rawKey = `cr_${random}` // 67 chars total
   const prefix = extractPrefix(rawKey)
   const id = randomBytes(8).toString('hex')
 
-  const grantedScopes = scopes ?? [scope]
-  const primaryScope = grantedScopes[0] as KeyScope
+  const grantedScopes: string[] = Array.isArray(scopeOrScopes)
+    ? scopeOrScopes
+    : [scopeOrScopes]
+  const primaryScope = (grantedScopes[0] ?? 'read') as KeyScope
 
   const stored: StoredApiKey = {
     id,
@@ -94,9 +101,15 @@ export async function generateApiKey(
     active: true,
   }
 
-  store.set(id, stored)
+  if (useInMemory) {
+    inMemoryStore.set(id, stored)
+  } else {
+    const dbKey = await repository.createApiKey(stored)
+    stored.id = dbKey.id
+  }
+
   return {
-    id,
+    id: stored.id,
     key: rawKey,
     prefix,
     scope: primaryScope,
@@ -157,12 +170,12 @@ export async function revokeApiKey(id: string): Promise<boolean> {
  * Rotate an API key: revokes the existing key and issues a new one with the same
  * scopes, tier, and owner. Returns null if the key doesn't exist or is already revoked.
  */
-export function rotateApiKey(id: string): CreateApiKeyResult | null {
-  const existing = store.get(id)
+export async function rotateApiKey(id: string): Promise<CreateApiKeyResult | null> {
+  const existing = inMemoryStore.get(id)
   if (!existing || !existing.active) return null
 
   existing.active = false
-  return generateApiKey(existing.ownerId, existing.scope, existing.tier, existing.scopes)
+  return await generateApiKey(existing.ownerId, existing.scopes, existing.tier)
 }
 
 /**
@@ -171,7 +184,7 @@ export function rotateApiKey(id: string): CreateApiKeyResult | null {
  * @returns Key metadata (minus `hashedKey`), or null if not found.
  */
 export function findApiKeyById(id: string): Omit<StoredApiKey, 'hashedKey'> | null {
-  const key = store.get(id)
+  const key = inMemoryStore.get(id)
   if (!key) return null
   const { hashedKey: _h, ...rest } = key
   return rest

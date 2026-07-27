@@ -8,6 +8,65 @@
 import { cache, CacheService } from './redis.js'
 import { recordStaleCacheRead } from '../middleware/metrics.js'
 import { getInvalidationBus } from './invalidationBus.js'
+import { transactionContextStorage } from '../db/transaction.js'
+
+/**
+ * Execute hook after successful transaction commit, or immediately if not in transaction.
+ */
+export function runPostCommit(fn: () => Promise<void>): void {
+  const context = transactionContextStorage.getStore()
+  if (context) {
+    context.postCommitHooks.push(fn)
+  } else {
+    fn().catch(err => console.error('Error running post-commit hook immediately:', err))
+  }
+}
+
+/**
+ * Execute hook if transaction rolls back.
+ */
+export function runRollback(fn: () => Promise<void>): void {
+  const context = transactionContextStorage.getStore()
+  if (context) {
+    context.rollbackHooks.push(fn)
+  }
+}
+
+/**
+ * Acquire a concurrency lock on cache key(s) with short TTL.
+ * Register post-commit and rollback hooks to delete the lock.
+ */
+export async function acquireCacheLock(namespace: string, key: string | string[], ttlSeconds = 2): Promise<void> {
+  const keys = Array.isArray(key) ? key : [key]
+  
+  await Promise.all(
+    keys.map(async (k) => {
+      await cache.set(`lock:${namespace}`, k, '1', ttlSeconds)
+    })
+  )
+
+  const release = async () => {
+    await Promise.all(
+      keys.map(async (k) => {
+        await cache.delete(`lock:${namespace}`, k)
+      })
+    )
+  }
+
+  runPostCommit(release)
+  runRollback(release)
+}
+
+/**
+ * Checks if any concurrency lock is active on cache key(s).
+ */
+export async function isCacheLocked(namespace: string, key: string | string[]): Promise<boolean> {
+  const keys = Array.isArray(key) ? key : [key]
+  const checks = await Promise.all(
+    keys.map(k => cache.exists(`lock:${namespace}`, k))
+  )
+  return checks.some(exists => exists)
+}
 
 export interface InvalidationOptions {
   /**
@@ -38,6 +97,32 @@ export async function invalidateCache(
 ): Promise<boolean> {
   const { verify = false, verifyFn } = options
   
+  const context = transactionContextStorage.getStore()
+  if (context) {
+    runPostCommit(async () => {
+      await cache.delete(namespace, key)
+      const bus = getInvalidationBus()
+      await bus.publish({
+        type: 'invalidate',
+        namespace,
+        key
+      })
+      if (verify && freshData) {
+        const staleCheck = await cache.get(namespace, key)
+        if (staleCheck) {
+          const isStale = verifyFn 
+            ? verifyFn(staleCheck, freshData)
+            : JSON.stringify(staleCheck) !== JSON.stringify(freshData)
+          if (isStale) {
+            recordStaleCacheRead(namespace)
+            console.warn(`Stale cache detected for ${namespace}:${key}`)
+          }
+        }
+      }
+    })
+    return true
+  }
+
   // Delete the cache entry
   const deleted = await cache.delete(namespace, key)
   
@@ -80,6 +165,24 @@ export async function invalidateMultiple(
   namespace: string,
   keys: string[]
 ): Promise<number> {
+  const context = transactionContextStorage.getStore()
+  if (context) {
+    runPostCommit(async () => {
+      await Promise.all(
+        keys.map(async (key) => {
+          await cache.delete(namespace, key)
+        })
+      )
+      const bus = getInvalidationBus()
+      await bus.publish({
+        type: 'invalidate_multiple',
+        namespace,
+        keys
+      })
+    })
+    return keys.length
+  }
+
   let count = 0
   
   await Promise.all(
@@ -112,6 +215,20 @@ export async function invalidatePattern(
   namespace: string,
   pattern: string
 ): Promise<number> {
+  const context = transactionContextStorage.getStore()
+  if (context) {
+    runPostCommit(async () => {
+      await cache.clearNamespace(`${namespace}:${pattern}`)
+      const bus = getInvalidationBus()
+      await bus.publish({
+        type: 'invalidate_pattern',
+        namespace,
+        pattern
+      })
+    })
+    return 0
+  }
+
   const count = await cache.clearNamespace(`${namespace}:${pattern}`)
   
   // Publish invalidation event
