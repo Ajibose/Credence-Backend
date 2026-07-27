@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DlqRouter, type DlqSink } from '../listeners/messageValidator.js'
 
 const streamState = vi.hoisted(() => ({
   onmessage: undefined as undefined | ((op: any) => Promise<void>),
@@ -54,6 +55,11 @@ async function flushMicrotasks(): Promise<void> {
   await new Promise(resolve => resolve(undefined))
 }
 
+function makeRouter(): DlqRouter {
+  const sink: DlqSink = { async captureFailure() {} }
+  return new DlqRouter(sink)
+}
+
 describe('Horizon Bond Creation Listener', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -66,22 +72,19 @@ describe('Horizon Bond Creation Listener', () => {
     mocks.mockPoolQuery.mockResolvedValue({ rows: [] })
   })
 
-  it('subscribes without throwing', async () => {
-    expect(() => subscribeBondCreationEvents({ captureFailure: vi.fn() })).not.toThrow()
-    await flushMicrotasks()
+  it('subscribes without throwing', () => {
+    expect(() => subscribeBondCreationEvents(makeRouter())).not.toThrow()
     expect(streamState.onmessage).toBeTypeOf('function')
   })
 
-  it('accepts an undefined callback', async () => {
-    expect(() => subscribeBondCreationEvents({ captureFailure: vi.fn() }, undefined)).not.toThrow()
-    await flushMicrotasks()
+  it('accepts an undefined callback', () => {
+    expect(() => subscribeBondCreationEvents(makeRouter(), undefined)).not.toThrow()
     expect(streamState.onmessage).toBeTypeOf('function')
   })
 
   it('parses and upserts create_bond events', async () => {
     const onEvent = vi.fn()
-    subscribeBondCreationEvents({ captureFailure: vi.fn() }, onEvent)
-    await flushMicrotasks()
+    subscribeBondCreationEvents(makeRouter(), onEvent)
 
     await streamState.onmessage!({
       type: 'create_bond',
@@ -106,8 +109,7 @@ describe('Horizon Bond Creation Listener', () => {
 
   it('ignores non-bond events', async () => {
     const onEvent = vi.fn()
-    subscribeBondCreationEvents({ captureFailure: vi.fn() }, onEvent)
-    await flushMicrotasks()
+    subscribeBondCreationEvents(makeRouter(), onEvent)
 
     await streamState.onmessage!({
       type: 'payment',
@@ -122,8 +124,7 @@ describe('Horizon Bond Creation Listener', () => {
   })
 
   it('handles duplicate create_bond events consistently', async () => {
-    subscribeBondCreationEvents({ captureFailure: vi.fn() }, vi.fn())
-    await flushMicrotasks()
+    subscribeBondCreationEvents(makeRouter(), vi.fn())
 
     const event = {
       type: 'create_bond',
