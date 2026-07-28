@@ -20,6 +20,7 @@ import { cache } from "./cache/redis.js";
 import { pool } from "./db/pool.js";
 import { responseTimeMiddleware } from "./middleware/responseTime.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
+import { correlationIdMiddleware } from "./middleware/correlationId.js";
 import { latencyBudgetMiddleware } from "./middleware/latencyBudget.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { createRateLimitMiddleware } from "./middleware/rateLimit.js";
@@ -79,6 +80,7 @@ try {
 }
 const maintenanceModeMiddleware = createMaintenanceModeMiddleware(maintenanceModeEnabled);
 
+app.use(correlationIdMiddleware);
 app.use(requestIdMiddleware);
 app.use(securityHeadersMiddleware);
 app.use(cacheHeaderMiddleware);
