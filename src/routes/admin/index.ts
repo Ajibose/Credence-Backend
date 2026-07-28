@@ -195,14 +195,14 @@ export function createAdminRouter(): Router {
 
       res.status(200).json({
         success: true,
-        message: result.message,
-        data: result.user,
+        message: 'Configuration reloaded successfully from Vault',
       })
     } catch (error) {
       next(error)
     }
-  },
-  )
+  }
+
+  router.post('/config/reload', requireUserAuth, requireAdminRole, handleReloadConfig)
 
   /**
    * POST /api/admin/keys/revoke
@@ -229,16 +229,6 @@ export function createAdminRouter(): Router {
       next(error);
     }
   });
-
-      res.status(200).json({
-        success: true,
-        message: result.message,
-      })
-    } catch (error) {
-      next(error)
-    }
-  },
-  )
 
   /**
    * POST /api/admin/impersonate
