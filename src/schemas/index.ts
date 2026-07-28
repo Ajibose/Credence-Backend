@@ -197,6 +197,8 @@ export {
   migrationsDryRunBodySchema,
   migrationsDryRunResponseSchema,
   replayEventBodySchema,
+  replayWebhookBodySchema,
+  type ReplayWebhookBody,
   type AssignRoleBody,
   type RevokeApiKeyBody,
   type IssueImpersonationTokenBody,
