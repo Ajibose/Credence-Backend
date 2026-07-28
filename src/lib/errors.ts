@@ -170,15 +170,26 @@ export class RequestTooLargeError extends AppError {
 }
 
 /**
- * Specific error for authenticated exports that would exceed the row/payload cap.
- * Rejected before streaming or other expensive export work begins.
+ * Thrown when an optimistic-locking update is rejected because another writer
+ * incremented the `version` between the caller's read and write.
+ *
+ * Callers should re-fetch the resource, re-apply their change, and retry.
  */
-export class ExportTooLargeError extends AppError {
-  constructor(
-    message: string = 'Export exceeds the maximum allowed size',
-    details?: { rowCount: number; maxRows: number },
-  ) {
-    super(message, ErrorCodeRegistry.REQUEST_TOO_LARGE, undefined, details)
+export class OptimisticLockError extends AppError {
+  /** The address (or identifier) of the resource that conflicted. */
+  public readonly resourceAddress: string
+  /** The version the caller expected to find. */
+  public readonly expectedVersion: number
+
+  constructor(resourceAddress: string, expectedVersion: number) {
+    super(
+      `Optimistic lock conflict: resource "${resourceAddress}" was modified by another writer (expected version ${expectedVersion}). Re-fetch and retry.`,
+      ErrorCodeRegistry.OPTIMISTIC_LOCK_CONFLICT,
+      undefined,
+      { resourceAddress, expectedVersion },
+    )
+    this.resourceAddress = resourceAddress
+    this.expectedVersion = expectedVersion
   }
 }
 
