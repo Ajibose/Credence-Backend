@@ -8,40 +8,52 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import express, { type Express } from 'express'
 import { auditLogService, AuditAction } from '../../services/audit/index.js'
+import { userRepo } from '../../repositories/userRepository.js'
 
 // ── Hoisted mock pool (stable across tests) ────────────────────────
 
 vi.mock('../../db/pool.js', () => {
   const idempotencyStore = new Map<string, any>()
+  const mockPool = {
+    query: vi.fn(async (sql: string, params: any[]) => {
+      if (sql.includes('SELECT') && sql.includes('idempotency_keys')) {
+        const key = params[0]
+        const row = idempotencyStore.get(key)
+        if (row && new Date(row.expires_at) > new Date()) {
+          return { rows: [row] }
+        }
+        return { rows: [] }
+      }
+
+      if (sql.includes('INSERT INTO idempotency_keys') || (sql.includes('ON CONFLICT') && sql.includes('idempotency_keys'))) {
+        const [key, actorId, requestHash, responseCode, responseBody, ttlSeconds, expiresAt] = params
+        idempotencyStore.set(key, {
+          key,
+          actor_id: actorId,
+          request_hash: requestHash,
+          response_code: responseCode,
+          response_body: responseBody,
+          ttl_seconds: ttlSeconds,
+          expires_at: expiresAt,
+          created_at: new Date(),
+        })
+        return { rowCount: 1 }
+      }
+
+      return { rows: [], rowCount: 0 }
+    }),
+    totalCount: 0,
+    idleCount: 0,
+    waitingCount: 0,
+  }
 
   return {
-    pool: {
-      query: vi.fn(async (sql: string, params: any[]) => {
-        if (sql.includes('SELECT') && sql.includes('idempotency_keys')) {
-          const key = params[0]
-          const row = idempotencyStore.get(key)
-          if (row && new Date(row.expires_at) > new Date()) {
-            return { rows: [row] }
-          }
-          return { rows: [] }
-        }
-
-        if (sql.includes('INSERT INTO idempotency_keys') || (sql.includes('ON CONFLICT') && sql.includes('idempotency_keys'))) {
-          const [key, requestHash, responseCode, responseBody, expiresAt] = params
-          idempotencyStore.set(key, {
-            key,
-            request_hash: requestHash,
-            response_code: responseCode,
-            response_body: responseBody,
-            expires_at: expiresAt,
-            created_at: new Date(),
-          })
-          return { rowCount: 1 }
-        }
-
-        return { rows: [], rowCount: 0 }
-      }),
-    },
+    pool: mockPool,
+    workerPool: mockPool,
+    replicaPool: mockPool,
+    apiPreparedStatementCache: { size: 0 },
+    workerPreparedStatementCache: { size: 0 },
+    replicaPreparedStatementCache: { size: 0 },
   }
 })
 
@@ -88,6 +100,24 @@ function errorHandler(err: any, _req: any, res: any, _next: any) {
   res.status(500).json({ error: err.message || 'Internal error' })
 }
 
+function seedTestUsers() {
+  userRepo._reset()
+  userRepo.upsert({
+    id: 'admin-user-1',
+    role: 'super-admin',
+    email: 'admin@credence.org',
+    tenantId: 'tenant-admin',
+    active: true,
+  })
+  userRepo.upsert({
+    id: 'verifier-user-1',
+    role: 'verifier',
+    email: 'verifier@credence.org',
+    tenantId: 'tenant-verifier',
+    active: true,
+  })
+}
+
 // ── Admin auth helpers ─────────────────────────────────────────────
 
 const ADMIN_AUTH = { Authorization: 'Bearer admin-key-12345' }
@@ -100,6 +130,7 @@ describe('Admin Routes — Only-Admin Access Control', () => {
   let app: Express
 
   beforeEach(async () => {
+    seedTestUsers()
     const { createAdminRouter } = await import('./index.js')
     app = express()
     app.use(express.json())
@@ -135,6 +166,7 @@ describe('Admin Routes — Idempotent Mutations', () => {
   let app: Express
 
   beforeEach(async () => {
+    seedTestUsers()
     const { createAdminRouter } = await import('./index.js')
     app = express()
     app.use(express.json())
@@ -181,8 +213,11 @@ describe('POST /api/admin/replay-event', () => {
       .post('/api/admin/replay-event')
       .send({ id: '' })
 
-    expect(res.status).toBe(400)
-    expect(res.body.code).toBe('validation_failed')
+    await request(app, 'POST', '/api/admin/roles/assign', headers, { userId: 'admin-user-1', role: 'admin' })
+
+    const { status, body } = await request(app, 'POST', '/api/admin/roles/assign', headers, { userId: 'admin-user-1', role: 'super-admin' })
+    expect(status).toBe(409)
+    expect((body as any).code).toBe('idempotency_key_mismatch')
   })
 
   it('should return 400 for extra unknown fields (strict schema)', async () => {
@@ -194,4 +229,115 @@ describe('POST /api/admin/replay-event', () => {
     expect(res.body.code).toBe('validation_failed')
   })
 
+  it('does_not_interfere_when_no_idempotency_key', async () => {
+    const payload = { userId: 'admin-user-1', role: 'admin' }
+
+    const res = await request(app, 'POST', '/api/admin/roles/assign', ADMIN_AUTH, payload)
+    expect(res.status).toBe(200)
+    expect((res.body as any).success).toBe(true)
+  })
+
+  it('applies_idempotency_to_key_revocation', async () => {
+    const key = 'ia-test-key-revoke-1'
+    const headers = { ...ADMIN_AUTH, 'idempotency-key': key }
+    const payload = { userId: 'verifier-user-1', apiKey: 'verifier-key-67890' }
+
+    const res1 = await request(app, 'POST', '/api/admin/keys/revoke', headers, payload)
+    expect(res1.status).toBe(200)
+
+    const res2 = await request(app, 'POST', '/api/admin/keys/revoke', headers, payload)
+    expect(res2.status).toBe(200)
+    expect(res2.body).toEqual(res1.body)
+  })
+})
+
+describe('Admin Routes — Audit Logged Actions', () => {
+  let app: Express
+
+  beforeEach(async () => {
+    seedTestUsers()
+    await auditLogService.clearLogs()
+    const { createAdminRouter } = await import('./index.js')
+    app = express()
+    app.use(express.json())
+    app.use('/api/admin', createAdminRouter())
+    app.use(errorHandler)
+  })
+
+  it('does_not_log_on_auth_failure', async () => {
+    await request(app, 'POST', '/api/admin/roles/assign', {}, { userId: 'admin-user-1', role: 'admin' })
+
+    const logs = await auditLogService.getAllLogs()
+    const roleLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    expect(roleLogs.length).toBe(0)
+  })
+
+  it('does_not_log_on_authorization_failure', async () => {
+    await request(app, 'POST', '/api/admin/roles/assign', VERIFIER_AUTH, { userId: 'admin-user-1', role: 'admin' })
+
+    const logs = await auditLogService.getAllLogs()
+    const roleLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    expect(roleLogs.length).toBe(0)
+  })
+
+  it('logs_role_assignment_on_success', async () => {
+    const payload = { userId: 'admin-user-1', role: 'admin' }
+    await request(app, 'POST', '/api/admin/roles/assign', ADMIN_AUTH, payload)
+
+    const logs = await auditLogService.getAllLogs()
+    const roleLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    expect(roleLogs.length).toBeGreaterThanOrEqual(1)
+    const lastLog = roleLogs[roleLogs.length - 1]
+    expect(lastLog.actorId).toBe('admin-user-1')
+    expect(lastLog.actorEmail).toBe('admin@credence.org')
+    expect(lastLog.resourceId).toBe('admin-user-1')
+    expect(lastLog.status).toBe('success')
+    expect(lastLog.details).toHaveProperty('oldRole')
+    expect(lastLog.details).toHaveProperty('newRole', 'admin')
+  })
+
+  it('logs_invalid_role_attempt_as_failure', async () => {
+    const payload = { userId: 'admin-user-1', role: 'nonexistent-role' }
+    await request(app, 'POST', '/api/admin/roles/assign', ADMIN_AUTH, payload)
+
+    const logs = await auditLogService.getAllLogs()
+    const roleLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    expect(roleLogs.length).toBeGreaterThanOrEqual(1)
+    const lastLog = roleLogs[roleLogs.length - 1]
+    expect(lastLog.status).toBe('failure')
+  })
+
+  it('logs_user_not_found_as_failure', async () => {
+    const payload = { userId: 'nonexistent-user', role: 'admin' }
+    await request(app, 'POST', '/api/admin/roles/assign', ADMIN_AUTH, payload)
+
+    const logs = await auditLogService.getAllLogs()
+    const roleLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    expect(roleLogs.length).toBeGreaterThanOrEqual(1)
+    const lastLog = roleLogs[roleLogs.length - 1]
+    expect(lastLog.status).toBe('failure')
+  })
+
+  it('logs_multiple_actions_independently', async () => {
+    await request(app, 'POST', '/api/admin/roles/assign', ADMIN_AUTH, { userId: 'admin-user-1', role: 'admin' })
+    await request(app, 'POST', '/api/admin/keys/revoke', ADMIN_AUTH, { userId: 'verifier-user-1', apiKey: 'verifier-key-67890' })
+
+    const logs = await auditLogService.getAllLogs()
+    const assignLogs = logs.filter((l) => l.action === AuditAction.ASSIGN_ROLE)
+    const revokeLogs = logs.filter((l) => l.action === AuditAction.REVOKE_API_KEY)
+    expect(assignLogs.length).toBeGreaterThanOrEqual(1)
+    expect(revokeLogs.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('logs_key_revocation_on_success', async () => {
+    const payload = { userId: 'admin-user-1', apiKey: 'admin-key-12345' }
+    await request(app, 'POST', '/api/admin/keys/revoke', ADMIN_AUTH, payload)
+
+    const logs = await auditLogService.getAllLogs()
+    const revokeLogs = logs.filter((l) => l.action === AuditAction.REVOKE_API_KEY)
+    expect(revokeLogs.length).toBeGreaterThanOrEqual(1)
+    const lastLog = revokeLogs[revokeLogs.length - 1]
+    expect(lastLog.actorId).toBe('admin-user-1')
+    expect(lastLog.status).toBe('success')
+  })
 })

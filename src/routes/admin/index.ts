@@ -195,14 +195,24 @@ export function createAdminRouter(): Router {
 
       res.status(200).json({
         success: true,
-        message: 'Configuration reloaded successfully from Vault',
       })
     } catch (error) {
       next(error)
     }
-  }
+  };
 
-  router.post('/config/reload', requireUserAuth, requireAdminRole, handleReloadConfig)
+  /**
+   * POST /api/admin/reload-config
+   * Triggering a live reload of the validated config; audit-logged.
+   */
+  router.post('/reload-config', requireUserAuth, requireAdminRole, handleReloadConfig);
+
+  /**
+   * POST /api/admin/refresh-secrets
+   * Reloads secrets from the vault (.env) without a restart.
+   * @deprecated Use /reload-config instead.
+   */
+  router.post('/refresh-secrets', requireUserAuth, requireAdminRole, handleReloadConfig);
 
   /**
    * POST /api/admin/keys/revoke
