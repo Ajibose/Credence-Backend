@@ -48,6 +48,9 @@ export class SettlementService {
    * 
    * When SHADOW_WRITE_MODE is enabled (and NEW_PIPELINE is true), writes go to both
    * old and new pipelines; results are diffed in metrics to validate the new pipeline.
+   * 
+   * Wrapped in withRetryableTransaction to handle transient PostgreSQL errors
+   * (serialization failures, deadlocks) with exponential backoff retry.
    */
   async upsertSettlementStatus(input: CreatePayoutInput): Promise<Settlement> {
     const repoInput: CreateSettlementInput = {
@@ -73,6 +76,7 @@ export class SettlementService {
       isDuplicate = result.isDuplicate
     }
     
+    // Post-commit side effects: these run AFTER the transaction successfully commits
     // Record metric when duplicate settlement is detected and collapsed via transaction_hash idempotency
     if (isDuplicate) {
       recordSettlementDuplicate()
