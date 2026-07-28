@@ -13,4 +13,4 @@ export {
   createDiscardExportWriter,
   createNdjsonExportWriter,
 } from './exportService.js'
-export { ExportTooLargeError } from '../lib/errors.js'
+export { BatchPayoutService } from './batchPayoutService.js'
